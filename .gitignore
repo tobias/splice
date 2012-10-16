@@ -1,0 +1,34 @@
+# various editor-related files
+*~
+.*.sw*
+.#*
+\#*
+nb-configuration.xml
+.externalToolBuilders
+.lein*
+.project
+.settings
+.classpath
+eclipse-classes
+
+# build artifacts
+*.jar
+bin
+build
+target
+lib
+classes
+autodoc
+
+# cljs temporary output directory
+out
+
+# clojars
+pom.xml*
+*clojars.org
+
+# credentials, environment stuffs
+.elasticbeanstalk
+.lein-env
+
+.repl
