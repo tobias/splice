@@ -84,6 +84,10 @@
   (print-method (.adds o) w)
   (.write w " ")
   (print-method (.removes o) w)
+  (.write w " ")
+  (print-method (.size o) w)
+  (.write w " ")
+  (print-method (.metadata o) w)
   (.write w "]"))
 
 (defn create
