@@ -1,5 +1,6 @@
 (ns p79.crdt.or-set
   (:require p79.crdt
+            [p79.crdt.vclock]
             [clojure.set :as set]))
 
 (defn- tag
@@ -14,11 +15,13 @@
   (equiv [this other]
     (.equals this other))
   (cons [this v]
-    (ObservedRemoveSet.
-      (update-in adds [v] (fnil conj #{}) (tag))
-      removes
-      (inc size)
-      metadata))
+    (if (contains? this v)
+      v
+      (ObservedRemoveSet.
+        (update-in adds [v] (fnil conj #{}) (tag))
+        removes
+        (inc size)
+        metadata)))
   
   Object
   (hashCode [this]
