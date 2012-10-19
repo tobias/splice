@@ -1,4 +1,4 @@
-(ns p79.test-or-set
+(ns p79.crdt.test-or-set
   (:require [p79.crdt.or-set :refer (create)])
   (:use clojure.test))
 

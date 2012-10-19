@@ -1,5 +1,5 @@
-(ns p79.crdt.vclock-test
-  (:require [p79.crdt.vclock :as vc])
+(ns p79.vclock-test
+  (:require [p79.vclock :as vc])
   (:use clojure.test))
 
 (deftest test-descends

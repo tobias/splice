@@ -1,5 +1,8 @@
-(ns p79.crdt.vclock
+(ns p79.vclock
   (:require [clojure.set :as set]))
+
+;; TODO: pruning of some sort
+;; (or, implement interval tree clocks)
 
 ; implemented after glancing at many vclock impls, including
 ; https://github.com/voldemort/voldemort/blob/master/src/java/voldemort/versioning/VectorClock.java
