@@ -1,28 +1,14 @@
 (ns p79.crdt.or-set
-  (:require p79.crdt
-            [p79.crdt.vclock]
+  (:require [p79.crdt :as crdt]
+            [p79.crdt.set :as cset]
+            [p79.vclock :as vc]
             [clojure.set :as set]))
 
 (defn- tag
   []
-  (java.util.UUID/randomUUID))
+  (vc/entry))
 
-(deftype ObservedRemoveSet [adds removes size metadata]
-  clojure.lang.IPersistentCollection
-  (count [this] size)
-  (empty [this]
-    (ObservedRemoveSet. {} {} 0 nil))
-  (equiv [this other]
-    (.equals this other))
-  (cons [this v]
-    (if (contains? this v)
-      v
-      (ObservedRemoveSet.
-        (update-in adds [v] (fnil conj #{}) (tag))
-        removes
-        (inc size)
-        metadata)))
-  
+(deftype ObservedRemoveSet [adds removes metadata]
   Object
   (hashCode [this]
     (hash (set (seq this))))
@@ -35,32 +21,88 @@
   clojure.lang.Seqable
   (seq [this]
     (filter #(contains? this %) (keys adds)))
-  ^:clj java.lang.Iterable
-  ^:clj (iterator [this] (.iterator (seq this)))
+  
   ; only need to be instanceof Set to make equality work
   ; can't forsee a reason to implement more of the interface
-  ^:clj java.util.Set
-  ^:clj (size [this] size)
+  ^:clj java.lang.Iterable
+  ^:clj (iterator [this] (.iterator (seq this)))
   
   clojure.lang.IPersistentSet
   (contains [this v]
     (boolean (seq (set/difference (adds v) (removes v)))))
   (get [this v]
     (and (contains? this v) v))
-  (disjoin [this v]
-    (if-not (contains? this v)
-      this
-      (ObservedRemoveSet.
-        (dissoc adds v)
-        (update-in removes [v] (fnil into #{}) (adds v))
-        (dec size)
-        metadata)))
+  (disjoin [this v] (throw (UnsupportedOperationException.)))
+  
+  clojure.lang.IPersistentCollection
+  (count [this] (count (seq this)))
+  (empty [this] (throw (UnsupportedOperationException.)))
+  (equiv [this other] (.equals this other))
+  (cons [this v] (throw (UnsupportedOperationException.)))
   
   java.io.Serializable
   clojure.lang.IFn
   (invoke [this k] (get this k))
+  clojure.lang.IMeta
+  (meta [this] metadata)
+  clojure.lang.IObj
+  (withMeta [this meta] (ObservedRemoveSet. adds removes meta)))
+
+^:clj
+(defmethod print-method ObservedRemoveSet
+  [^ObservedRemoveSet o ^java.io.Writer w]
+  (.write w "#")
+  (.write w (.getName (class o)))
+  (.write w "[")
+  (print-method (.adds o) w)
+  (.write w " ")
+  (print-method (.removes o) w)
+  (.write w " ")
+  (print-method (.metadata o) w)
+  (.write w "]"))
+
+(defn- as-set [xs] (if (set? xs) xs (set xs)))
+
+(extend-type ObservedRemoveSet
+  cset/Set
+  (add
+    ([this e]
+      (if (contains? this e)
+        this
+        (cset/add this e #{(tag)})))
+    ([this e tags]
+      (crdt/conj-log
+        (ObservedRemoveSet.
+          (update-in (.adds this) [e] (fnil set/union #{}) tags)
+          (.removes this)
+          (.metadata this))
+        [:add [e tags]])))
+  (remove
+    ([this e]
+      (if-not (contains? this e)
+        this
+        (cset/remove this e ((.adds this) e))))
+    ([this e tags]
+      (let [etags (set/difference ((.adds this) e) tags)]
+        (crdt/conj-log
+          (ObservedRemoveSet.
+            (if (empty? etags)
+              (dissoc (.adds this) e)
+              (assoc (.adds this) e etags))
+            (update-in (.removes this) [e] (fnil set/union #{}) tags)
+            (.metadata this))
+          [:remove [e tags]]))))
+  (contains [this e] (.contains this e))
   
-  p79.crdt.Joinable
+  p79.crdt/CmRDT
+  (update [this operation arguments]
+    (apply (case operation
+             :add p79.crdt.set/add
+             :remove p79.crdt.set/remove)
+           this
+           arguments))
+  
+  p79.crdt/Joinable
   (join [this other]
     (let [^ObservedRemoveSet other other
           adds (reduce
@@ -73,26 +115,11 @@
                        :default (assoc adds v pruned))))
                  (merge-with set/union (.adds this) (.adds other))
                  (merge-with set/union (.removes this) (.removes other)))]
-      (ObservedRemoveSet. adds {} (count adds) metadata))))
-
-^:clj
-(defmethod print-method ObservedRemoveSet
-  [^ObservedRemoveSet o ^java.io.Writer w]
-  (.write w "#")
-  (.write w (.getName (class o)))
-  (.write w "[")
-  (print-method (.adds o) w)
-  (.write w " ")
-  (print-method (.removes o) w)
-  (.write w " ")
-  (print-method (.size o) w)
-  (.write w " ")
-  (print-method (.metadata o) w)
-  (.write w "]"))
+      (ObservedRemoveSet. adds {} (.metadata this)))))
 
 (defn create
   "Returns a new Observed-Remove Set containing the provided initial values."
   [& vals]
   (let [adds (zipmap vals (map hash-set (repeatedly tag)))]
-    (ObservedRemoveSet. adds {} (count adds) nil)))
+    (ObservedRemoveSet. adds {} nil)))
 
