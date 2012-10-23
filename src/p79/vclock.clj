@@ -11,7 +11,7 @@
 (defn- ^:clj uuid [] (java.util.UUID/randomUUID))
 ;(defn- ^:cljs uuid [] (UUID.))
 
-(defonce ^:private nodename (uuid))
+(defonce ^:dynamic nodename (uuid))
 (defonce ^:private counter (atom 0))
 
 (defonce ^{:doc "reset! to have timestamps on vector clock entries adjusted by some amount
@@ -26,11 +26,12 @@
 
 (defn entry
   ([] (entry nodename))
-  ([nodename] {:name nodename :counter (swap! counter inc) :t (seconds)}))
+  ([nodename] (entry nodename (swap! counter inc) (seconds)))
+  ([nodename count t] {:name nodename :counter count :t t}))
 
 (defn clock
-  [& name-entry-pairs]
-  (apply hash-map name-entry-pairs))
+  [& entries]
+  (into {} (for [e entries] [(:name e) e])))
 
 (defn tick
   ([vclock] (tick vclock nodename))
