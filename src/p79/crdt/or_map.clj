@@ -91,7 +91,7 @@
       ; have to add, may create dupe with different tag
       (map/add this k v #{(tag)}))
     ([this k v tags]
-      (crdt/conj-log
+      (crdt/log+
         (ObservedRemoveMap.
           (reduce
             (fn [entries tag] (assoc-in entries [k tag] v))
@@ -112,7 +112,7 @@
                     (dissoc (.entries this) k)
                     (update-in (.entries this) (partial apply dissoc) tags))
                   (.metadata this))]
-        (crdt/conj-log map [:remove [k tags]]))))
+        (crdt/log+ map [:remove [k tags]]))))
   (lookup [this k] (get this k))
   
   p79.crdt/CmRDT

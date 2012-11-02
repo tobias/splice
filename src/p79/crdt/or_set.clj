@@ -71,7 +71,7 @@
         this
         (cset/add this e #{(tag)})))
     ([this e tags]
-      (crdt/conj-log
+      (crdt/log+
         (ObservedRemoveSet.
           (update-in (.adds this) [e] (fnil set/union #{}) tags)
           (.removes this)
@@ -84,7 +84,7 @@
         (cset/remove this e ((.adds this) e))))
     ([this e tags]
       (let [etags (set/difference ((.adds this) e) tags)]
-        (crdt/conj-log
+        (crdt/log+
           (ObservedRemoveSet.
             (if (empty? etags)
               (dissoc (.adds this) e)

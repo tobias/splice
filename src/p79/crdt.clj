@@ -14,9 +14,9 @@ and arguments to propagate to other replicas of the CmRDT.")
     "Returns a read-only data structure backed by this CmRDT containing its
 states as of time [t] denominated in seconds."))
 
-(defn conj-log
-  [crdt operation]
-  (vary-meta crdt update-in [::downstream-log] (fnil conj []) operation))
+(defn log+
+  [crdt & operations]
+  (vary-meta crdt update-in [::downstream-log] (fnil into []) operations))
 
 (defn log
   [crdt]
