@@ -84,20 +84,42 @@
   (print-method (.metadata o) w)
   (.write w "]"))
 
+;; TODO will eventually dispatch on affected key as well
+(defn join-strategy
+  [or-map k]
+  (-> or-map meta ::crdt/join-strategy (or :multi-value)))
+
+(def join-strategies
+  {:multi-value {:add (fn [this k v tags]
+                        (ObservedRemoveMap.
+                          (reduce
+                            (fn [entries tag] (assoc-in entries [k tag] v))
+                            (.entries this)
+                            tags)
+                          (.metadata this)))
+                 :remove (fn [this k tags]
+                           (let [tagvs ((.entries this) k)
+                                 etags (select-keys tagvs tags)]
+                             (ObservedRemoveMap.
+                               (if (= tagvs etags)
+                                 (dissoc (.entries this) k)
+                                 (update-in (.entries this) (partial apply dissoc) tags))
+                               (.metadata this))))}
+   :lww nil})
+
 (extend-type ObservedRemoveMap
   map/Map
   (add
     ([this k v]
-      ; have to add, may create dupe with different tag
-      (map/add this k v #{(tag)}))
+      (if ((if (= :multi-value (join-strategy this k))
+             sentinel=
+             =)
+            v (get this k))
+        this
+        (map/add this k v #{(tag)})))
     ([this k v tags]
       (crdt/log+
-        (ObservedRemoveMap.
-          (reduce
-            (fn [entries tag] (assoc-in entries [k tag] v))
-            (.entries this)
-            tags)
-          (.metadata this))
+        ((-> this (join-strategy k) join-strategies :add) this k v tags)
         [:add [k v tags]])))
   (remove
     ([this k]
@@ -105,14 +127,9 @@
         this
         (map/remove this k (-> ((.entries this) k) keys set))))
     ([this k tags]
-      (let [tagvs ((.entries this) k)
-            etags (select-keys tagvs tags)
-            map (ObservedRemoveMap.
-                  (if (= tagvs etags)
-                    (dissoc (.entries this) k)
-                    (update-in (.entries this) (partial apply dissoc) tags))
-                  (.metadata this))]
-        (crdt/log+ map [:remove [k tags]]))))
+      (crdt/log+
+        ((-> this (join-strategy k) join-strategies :remove) this k tags)
+        [:remove [k tags]])))
   (lookup [this k] (get this k))
   
   p79.crdt/CmRDT
