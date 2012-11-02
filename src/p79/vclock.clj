@@ -1,5 +1,6 @@
 (ns p79.vclock
-  (:require [clojure.set :as set]))
+  (:require [clojure.set :as set])
+  (:refer-clojure :exclude (time)))
 
 ;; TODO: pruning of some sort
 ;; (or, implement interval tree clocks)
@@ -18,15 +19,14 @@
 (very handy for ~synchronizing client timestamps with server timestamps)"}
   timestamp-adjustment (atom 0))
 
-(defn- seconds
-  ([] (seconds @timestamp-adjustment))
+(defn- time
+  ([] (time @timestamp-adjustment))
   ([timestamp-adjustment]
-    (+ timestamp-adjustment
-       (Math/round (double (/ (System/currentTimeMillis) 1000))))))
+    (+ timestamp-adjustment (System/currentTimeMillis))))
 
 (defn entry
   ([] (entry nodename))
-  ([nodename] (entry nodename (swap! counter inc) (seconds)))
+  ([nodename] (entry nodename (swap! counter inc) (time)))
   ([nodename count t] {:name nodename :counter count :t t}))
 
 (defn clock
