@@ -1,6 +1,6 @@
 (ns p79.crdt)
 
-(defprotocol Joinable
+(defprotocol CvRDT
   (join [a b]
     "Joins two CvRDTs, merging the provided states, potentially into a
 new lower upper bound."))

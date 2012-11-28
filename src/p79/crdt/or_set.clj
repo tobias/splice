@@ -102,7 +102,7 @@
            this
            arguments))
   
-  p79.crdt/Joinable
+  p79.crdt/CvRDT
   (join [this other]
     (let [^ObservedRemoveSet other other
           adds (reduce
