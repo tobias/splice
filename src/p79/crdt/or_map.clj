@@ -140,18 +140,20 @@
         this
         (map/add this k v #{(tag)})))
     ([this k v tags]
-      (crdt/log+
-        ((-> this (join-strategy k) join-strategies :add) this k v tags)
-        [:add [k v tags]])))
+      (let [map ((-> this (join-strategy k) join-strategies :add) this k v tags)]
+        (if (identical? this map)
+          this
+          (crdt/log+ map [:add [k v tags]])))))
   (remove
     ([this k]
       (if-not (contains? this k)
         this
         (map/remove this k (-> ((.entries this) k) keys set))))
     ([this k tags]
-      (crdt/log+
-        ((-> this (join-strategy k) join-strategies :remove) this k tags)
-        [:remove [k tags]])))
+      (let [map ((-> this (join-strategy k) join-strategies :remove) this k tags)]
+        (if (identical? this map)
+          this
+          (crdt/log+ map [:remove [k tags]])))))
   (lookup [this k] (get this k))
   
   p79.crdt/CmRDT
