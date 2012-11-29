@@ -44,7 +44,7 @@
         twiddle-some-set #(dosync
                             (apply commute (first maps)
                                      (let [key (rand-nth [:a :b :c :d :e :f :g :h :i
-                                                :j :k :l :m :n :p :q :r :s])]
+                                                          :j :k :l :m :n :p :q :r :s])]
                                        (if (>= 25 (rand-int 100))
                                        [map/add key (rand-int 20)]
                                        [map/remove key]))))

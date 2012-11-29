@@ -18,6 +18,13 @@
   (= (if (set? x) x #{x})
      (if (set? y) y #{y})))
 
+(declare join-strategies)
+
+;; TODO will eventually dispatch on affected key as well
+(defn join-strategy
+  [or-map k]
+  (-> or-map meta ::crdt/join-strategy (or :multi-value #_:lww)))
+
 (deftype ObservedRemoveMap [entries metadata]
   Object
   (hashCode [this]
@@ -41,20 +48,11 @@
   (valAt [this k] (when->> k (find this) val))
   (valAt [this k default] (or (get this k) default))
   clojure.lang.Associative
-  (containsKey [this k] (boolean (find entries k)))
+  (containsKey [this k] (contains? entries k))
   (entryAt [this k]
     (when-let [values (get entries k)]
       (clojure.lang.MapEntry. k
-        (reduce
-          ;; entries can contain duplicate values for a given key if
-          ;; set concurrently with different tags. This merges the dupes
-          ;; on lookup, including the tags in a ::tags set in the value
-          ;; set's metadata
-          (fn [vset [tag v]]
-            (vary-meta (conj vset v)
-                       update-in [::tags] (fnil conj #{}) tag))
-          #{}
-          values))))
+        ((-> this (join-strategy k) join-strategies :lookup) k values))))
   (assoc [this k v] (map/add this k v))
   clojure.lang.IPersistentMap
   (assocEx [this k v]
@@ -84,11 +82,7 @@
   (print-method (.metadata o) w)
   (.write w "]"))
 
-;; TODO will eventually dispatch on affected key as well
-(defn join-strategy
-  [or-map k]
-  (-> or-map meta ::crdt/join-strategy (or :multi-value)))
-
+;; This is seeming all a little (lot?) dodgy now...
 (def join-strategies
   {:multi-value {:add (fn [this k v tags]
                         (ObservedRemoveMap.
@@ -104,8 +98,36 @@
                                (if (= tagvs etags)
                                  (dissoc (.entries this) k)
                                  (update-in (.entries this) (partial apply dissoc) tags))
-                               (.metadata this))))}
-   :lww nil})
+                               (.metadata this))))
+                 :lookup (fn [k value-entry]
+                           (reduce
+                             ;; entries can contain duplicate values for a given key if
+                             ;; set concurrently with different tags. This merges the dupes
+                             ;; on lookup, including the tags in a ::tags set in the value
+                             ;; set's metadata
+                             (fn [vset [tag v]]
+                               (vary-meta (conj vset v)
+                                          update-in [::tags] (fnil conj #{}) tag))
+                             #{}
+                             value-entry))}
+   :lww {:add (fn [this k v tags]
+                (let [latest-tag (max-key :t tags)
+                      [_ {:keys [tag value]}] (find this k)]
+                  (if (or (not tag)
+                          (>= (:t latest-tag) (:t tag)))
+                    (ObservedRemoveMap.
+                      (assoc (.entries this) k {:tag latest-tag :value v})
+                      (.metadata this))
+                    this)))
+         :remove (fn [this k tags]
+                   (let [latest-tag (max-key :t tags)
+                         [_ {:keys [tag value]}] (find this k)]
+                     (if (and tag (not= tag (max-key :t (cons tag tags))))
+                       (ObservedRemoveMap.
+                         (dissoc (.entries this) k)
+                         (.metadata this))
+                       this)))
+         :lookup #(:value %2)}})
 
 (extend-type ObservedRemoveMap
   map/Map
