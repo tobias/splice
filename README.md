@@ -157,36 +157,68 @@ either a problem, or a premature optimization for a time where there will be >
   * auditing info
   * etc. etc etc
 
-Tuples: `[e a v? tag timestamp delete?]`
+Tuples: `[timestamp tag e? a v?]`
 
-Operation meta: `[[tag timestamp] a v]`
+```
+(if e
+  (if v
+    :attribute-assertion
+    :attribute-removal)
+  (do (assert v) :operation-metadata))  
+```
+
+Operation meta: `[timestamp tag nil a v]`
+
+(The particular layout of tuple entries is storage-specific; shown here with:
+
+1. Optional `v` entry at the end, and
+2. Timestamp/tag pair prefixing the "actual" tuple data
+
+because:
+
+1. Makes schema/queryies for e.g. postgres implementation obvious
+2. when representing tuples/meta as vectors/arrays, can efficiently map index
+   => entry
+3. keeping timestamp/tag first allows for easy consistent snapshotting and
+   range-based time "querying" (just a sorted set))
 
 Example addition, with meta, and removal, with meta:
 
 ```
-["eUUID" :tag :p "tUUID1" 1354222006831]
-[["tUUID1" 1354222006831] :user "cemerick"]
-[["tUUID1" 1354222006831] :source "interactive"]
-[["tUUID1" 1354222006831] :app "wiki app"]
-["eUUID" :tag _ "tUUID1" 135422200998 :delete]
-[["tUUID1" 135422200998] :user "cemerick"]
-[["tUUID1" 135422200998] :source "auto-reformatter"]
-[["tUUID1" 135422200998] :app "wiki app"]
+[1354222006831 "tUUID1" "eUUID" :tag :p]
+[1354222006831 "tUUID1" nil :user "cemerick"]
+[1354222006831 "tUUID1" nil :source "interactive"]
+[1354222006831 "tUUID1" nil :app "wiki app"]
+[135422200998 "tUUID1" "eUUID" :tag]   ;; this is the 'remove' operation/tuple: no _v_alue
+[135422200998 "tUUID1" nil :user "cemerick"]
+[135422200998 "tUUID1" nil :source "auto-reformatter"]
+[135422200998 "tUUID1" nil :app "wiki app"]
 ```
 
-Tuple values are _only_ not defined for deletes.  (TODO: In that case, do we need a delete flag?)
+Tuple values are not defined for deletes _only_.  The absence of a value in a
+tuple is what marks it as a remove/delete.
 
-Operation metadata can never be "deleted" (paired with tombstones), so it doesn't need its own tags.
+Operation metadata can never be "deleted" (paired with tombstones), so it
+doesn't need its own tags.
 
-The "eid" for operation metadata tuples is compound because we need to use the same tag when deleting a tuple.  It's the timestamp that distinguishes between meta on an add operation and meta on a remove operation.
+The "eid" for operation metadata tuples is compound because we need to use the
+same tag when deleting a tuple.  It's the timestamp that distinguishes between
+meta on an add operation and meta on a remove operation.
 
 ### Multi-datastore capability
 
-i.e. for when the core of this is open sourced, and everyone can run a foundational port79 instance?
+i.e. for when the core of this is open sourced, and everyone can run a
+foundational port79 instance?
 
-Almost surely a premature notion.  But, right away, a clear issue:  how to reconcile the potential merging of two CmRDTs?  Can an op log be repeated, e.g. just send the tuples from one instance to another?
+Almost surely a premature notion.  But, right away, a clear issue:  how to
+reconcile the potential merging of two CmRDTs?  Can an op log be repeated, e.g.
+just send the tuples from one instance to another?
 
-(holy shit, we don't need a CmRDT given tuples...just propagate them in order of system timestamp?!  I suppose that would cause all sorts of difficulty if the destination instance was accepting operations at the same time.  Just make the replication a synchronous operation?  Have I been designing a CvRDT all this time and didn't realize it?!)
+(holy shit, we don't need a CmRDT given tuples...just propagate them in order
+of system timestamp?!  I suppose that would cause all sorts of difficulty if
+the destination instance was accepting operations at the same time.  Just make
+the replication a synchronous operation?  Have I been designing a CvRDT all
+this time and didn't realize it?!)
 
 TODO: review the Shapiro paper that goes into detail on CvRDT vs. CmRDT.
 
@@ -195,15 +227,22 @@ TODO: review the Shapiro paper that goes into detail on CvRDT vs. CmRDT.
 #### Graphs
 
 ```
-     P
-    / \
-  br   span
+         P
+     ___/|\___
+  br/    |    \span
+         | 
+       strong
 
-[1 :tag :p t]
-[1 :children 2]
-[1 :children 3]
-[2 :tag :br]
-[3 :tag :span]
+[ts tag 1 :tag :p]
+[ts tag 1 :ref/html 2]
+[ts tag 1 :ref/html 3]
+[ts tag 1 :ref/html 4]
+[ts tag 2 :tag :br]
+[ts tag 2 :rank 0.0]
+[ts tag 3 :tag :span]
+[ts tag 3 :rank 1.0]
+[ts tag 4 :tag :strong]
+[ts tag 4 :rank 0.5]
 ```
 
 #### Dense tabular data
@@ -215,12 +254,14 @@ TODO: review the Shapiro paper that goes into detail on CvRDT vs. CmRDT.
 2 | a  b  c
 3 | i  j  k
 
-[m #{1 A} x]
-[n :schema q]
+[ts tag m #{1 A} x]
+[ts tag n :schema q]
 ```
 
 (i.e. `:schema` could point to a row- or column- (or even cell-) based schema
 needed by programs consuming the data)
+
+An optimization for truly large datasets would be to store only a reference to an efficient "external" datastore (maybe Cassandra would be right here?).
 
 #### Maps
 
@@ -275,10 +316,55 @@ Given an `eid` (`1`) and a set of keys to traverse (`#{:children}`), give me:
   * per-key
   * per-value-type
   * scoped within/below values accessible under a particular key
-* multiple backends suitable for geographical distribution and low latency (Riak!)
+* multiple backends suitable for geographical distribution and low latency
+  (Riak!)
 
+### Storage backend notes
+
+Regardless of the backend(s) used, the _model_ has to be the same.  A port79
+instance running on riak should interoperate / replicate with another running
+on postgres, etc.
+
+#### Options
+
+* postgres
+  * all the query you could ever need
+  * fast and efficient
+  * good hosting options
+  * shardable and easily staffed if it becomes a long-term solution
+  * simply not distributed => high latency for anyone distant
+* Riak
+  * Lots of potential here: multi-datacenter replication, 2i, lucene search,
+    link walking, riak_pipe, riak CS for large binaries, more
+  * no starter hosting options (@riak\_on is working on it...?)
+  * No clear recursive query options, comparable to recursive CTEs in PG.  
+* redis?
+* voldemort?
+* cassandra/hbase/...   — way too complicated to start with
+
+#### Unworkable
+
+* couchdb
+  * impossible to produce even the most trivial of aggregates from views
+    (largely due to `reduce_limit`, but the problem — an empty object is
+returned when e.g. 50 values are in a map — appears to occur even when that is
+set to false)
+  * json documents + always-HTTP => fat
+* dynamodb
+  * Can only query by primary key
+* mongo: gtfo
+* graph databases (e.g. neo4j, orient, etc) seem ill-suited; though we have
+  references and such, and modeling graphs will be a primary use case:
+  * entities are most naturally vertices, but representing change over time in
+    graph databases is exceedingly cumbersome and inefficient
+  * graph databases do not generally appear to be shardable, never mind fully
+    distributed vs. e.g. Riak
+  * storing dense data will always be inefficient in all possible ways
+* datomic
+  * awesome, but enforces linearizability of _all_ operations; definitionally
+    impossible to distribute or scale horizontally
 
 ## License
 
-Copyright © 2012 FIXME
+Copyright © 2012 TODO
 
