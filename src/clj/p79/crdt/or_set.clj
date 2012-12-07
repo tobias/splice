@@ -4,6 +4,7 @@
             [p79.vclock :as vc]
             [clojure.set :as set]))
 
+;; there's absolutely _no_ reason to be using a vclock as the tag here
 (defn- tag
   []
   (vc/entry))
@@ -71,12 +72,10 @@
         this
         (cset/add this e #{(tag)})))
     ([this e tags]
-      (crdt/log+
-        (ObservedRemoveSet.
-          (update-in (.adds this) [e] (fnil set/union #{}) tags)
-          (.removes this)
-          (.metadata this))
-        [:add [e tags]])))
+      (ObservedRemoveSet.
+        (update-in (.adds this) [e] (fnil set/union #{}) tags)
+        (.removes this)
+        (.metadata this))))
   (remove
     ([this e]
       (if-not (contains? this e)
@@ -84,23 +83,13 @@
         (cset/remove this e ((.adds this) e))))
     ([this e tags]
       (let [etags (set/difference ((.adds this) e) tags)]
-        (crdt/log+
-          (ObservedRemoveSet.
-            (if (empty? etags)
-              (dissoc (.adds this) e)
-              (assoc (.adds this) e etags))
-            (update-in (.removes this) [e] (fnil set/union #{}) tags)
-            (.metadata this))
-          [:remove [e tags]]))))
+        (ObservedRemoveSet.
+          (if (empty? etags)
+            (dissoc (.adds this) e)
+            (assoc (.adds this) e etags))
+          (update-in (.removes this) [e] (fnil set/union #{}) tags)
+          (.metadata this)))))
   (contains [this e] (.contains this e))
-  
-  p79.crdt/CmRDT
-  (update [this operation arguments]
-    (apply (case operation
-             :add p79.crdt.set/add
-             :remove p79.crdt.set/remove)
-           this
-           arguments))
   
   p79.crdt/CvRDT
   (join [this other]

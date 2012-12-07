@@ -5,6 +5,9 @@
     "Joins two CvRDTs, merging the provided states, potentially into a
 new lower upper bound."))
 
+; CmRDTs do not appear to be worth the hassle; there's always (?) a CvRDT underneath
+; (in storage) that can be gradually replicated as necessary
+#_
 (defprotocol CmRDT
   (update [this operation arguments]
     "Applies the given [operation] to a CmRDT using the supplied [arguments].

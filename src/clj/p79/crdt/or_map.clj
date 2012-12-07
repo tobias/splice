@@ -141,9 +141,7 @@
         (map/add this k v #{(tag)})))
     ([this k v tags]
       (let [map ((-> this (join-strategy k) join-strategies :add) this k v tags)]
-        (if (identical? this map)
-          this
-          (crdt/log+ map [:add [k v tags]])))))
+        (if (identical? this map) this map))))
   (remove
     ([this k]
       (if-not (contains? this k)
@@ -151,18 +149,8 @@
         (map/remove this k (-> ((.entries this) k) keys set))))
     ([this k tags]
       (let [map ((-> this (join-strategy k) join-strategies :remove) this k tags)]
-        (if (identical? this map)
-          this
-          (crdt/log+ map [:remove [k tags]])))))
-  (lookup [this k] (get this k))
-  
-  p79.crdt/CmRDT
-  (update [this operation arguments]
-    (apply (case operation
-             :add map/add
-             :remove map/remove)
-           this
-           arguments)))
+        (if (identical? this map) this map))))
+  (lookup [this k] (get this k)))
 
 (defn create
   "Returns a new Observed-Remove Multimap containing the provided initial [keyvals]."
