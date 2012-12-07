@@ -18,7 +18,7 @@ its sequential specification:
 {K #_> #{V}} (add K V') {K #_> #{V V'}}
 {K #_> #{V V'}} (lookup K) #{V V'}
 {K #_> #{V}} (remove K) {}
-````
+```
 
 #### Concurrent operations and options
 
@@ -32,7 +32,7 @@ its sequential specification:
 * **add wins?**
 * remove wins?
 
-{… …} (add K V) || (add K V') {?? ??}
+`{… …} (add K V) || (add K V') {?? ??}`
 
 ##### How to choose between concurrent adds with same key?
 
@@ -261,7 +261,8 @@ TODO: review the Shapiro paper that goes into detail on CvRDT vs. CmRDT.
 (i.e. `:schema` could point to a row- or column- (or even cell-) based schema
 needed by programs consuming the data)
 
-An optimization for truly large datasets would be to store only a reference to an efficient "external" datastore (maybe Cassandra would be right here?).
+An optimization for truly large datasets would be to store only a reference to
+an efficient "external" datastore (maybe Cassandra would be right here?).
 
 #### Maps
 
@@ -277,6 +278,11 @@ The values in multimaps are sets.  Done.
 
 Depending on the backend, large binaries are just values, wrapped in a
 streaming interface or delay.
+
+#### RDF
+
+What does it mean for this datastore to interoperate or be backwards-compatible
+with existing RDF datastores?
 
 ### Implementation: Queries
 
@@ -301,8 +307,7 @@ Given an `eid` (`1`) and a set of keys to traverse (`#{:children}`), give me:
 
 * the eids of all transitively-referenced entities (`#{2 3}`), OR
 * a composite entity, rooted at the entity with the eid specified in the query,
-  with referenced entities replacing their references (`{:tag #{:p} :children
-#{{:tag :br} {:tag :span}}}`)
+  with referenced entities replacing their references (`{:tag #{:p} :children #{{:tag :br} {:tag :span}}}`)
 
 #### General principles
 
