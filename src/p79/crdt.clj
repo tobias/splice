@@ -9,11 +9,10 @@ new lower upper bound."))
   (update [this operation arguments]
     "Applies the given [operation] to a CmRDT using the supplied [arguments].
 Returns a new value, the metadata of which may contain a set of operations
-and arguments to propagate to other replicas of the CmRDT.")
-  (snapshot [this t]
-    "Returns a read-only data structure backed by this CmRDT containing its
-states as of time [t] denominated in seconds."))
+and arguments to propagate to other replicas of the CmRDT."))
 
+; stupid logging of CmRDT operations for later replication
+#_#_#_
 (defn log+
   [crdt & operations]
   (vary-meta crdt update-in [::downstream-log] (fnil into []) operations))
@@ -25,3 +24,8 @@ states as of time [t] denominated in seconds."))
 (defn truncate-log
   [crdt]
   (vary-meta crdt assoc ::downstream-log []))
+
+(defprotocol Snapshottable
+  (snapshot [this t]
+    "Returns a read-only data structure backed by this CRDT containing its
+states as of time [t] denominated in seconds."))
