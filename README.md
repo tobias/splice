@@ -49,36 +49,49 @@ its sequential specification:
 
 Should allow us to model damn near anything.
 
-Atomic unit similar to Datomic datoms, called _tuples_ for now:
+Atomic unit similar to Datomic datoms, called _units_ for now:
 
-`[entity-id attribute value t]`
+`[time tag entity-id attribute value]`
 
-TODO: do we have a better term than "entity"?
+TODO: the terminology around unit/tag/entity/attribute/value is still weak
 
-* entity-ids need to be UUIDs, _always_.  There's no coordinator here, so new
-  entity identifiers must be able to be safely generated anytime, anywhere.
-(Note that entity-ids are listed using numerals and other non-unique values in
-examples below just for the sake of readability.)
+This is a "unit": `[1382749272 "a5cde-45cc-..." "cea77880-6610..." :name "port79"]`
+
+It consists of five parts:
+
+1. **time**, the timestamp associated with the operation that created the unit
+2. a **tag**, a unique token associated _only_ with the operation that created
+   the unit
+3. an **entity id** (denoted `e`), a unique token associated with a logical
+   entity/identity.  Each entity can have many attributes.  (Alternative names:
+entity subject item name element cell)
+4. an **attribute key** (denoted `a`), a value identifying the attribute
+   stored by this unit.  Multiple units can provide values for the same
+entity/attribute pair, making for natural sets and multimaps.  (Alterantive
+names: predicate field slot bit cell register part feature aspect)
+5. a **value** (denoted `v`), the value for this unit (Alternative names: value
+   object datum bit)
+
+* `time` and `tag` together identify a single write (which may convey many
+  units, including "meta" units describing metadata about the write itself) 
+* `e` and `tag` need to be globally unique, _always_.  (This implies the use of
+  UUIDs, but does not require it, as long as the identifiers used are globally
+unique; in particular, different encodings of the same notion are reasonable).
+There's no coordinator here, so new entity and operation identifiers must be
+able to be safely generated anytime, anywhere.  (Note that entity-ids are
+listed using numerals and other non-unique values in examples below just for
+the sake of readability.)
 * attributes can be anything; really, they're attribute keys, especially if one
   wants to characterize each entity as a sub-multimap of the global multimap.
 * values can be anything
-* `t` needs to be more than a timestamp (and obviously can't be a transaction
-  id/number), and more than the unique tag described in the implemention of
-Observed-Remove sets. (Recall above; a map is "effectively a set of key+tag,
-each with a payload V".)  Likely needs to be a reference to another entity, so
-we can track:
-  * authored timestamp
-  * system timestamp (i.e. when it hits our servers, vs. when it was authored
-    in an offline environment)
-  * other write metadata
 
-Filtering on `t` is what will allow us to trivially obtain consistent snapshots
+Filtering on `time` is what will allow us to trivially obtain consistent snapshots
 — for limited sets of entities, or for the entire map.
 
 Again riffing on "a map is effectively a set of key+tag, each with a payload
 V", each tuple can be characterized as a map entry like so:
 
-`[[eid a] [v t]]`
+`[[eid a] [v [time tag]]]`
 
 …especially insofar as we want to be able to efficiently look up the value of a
 particular attribute of a particular entity, and we want to be able to easily
@@ -222,7 +235,51 @@ this time and didn't realize it?!)
 
 TODO: review the Shapiro paper that goes into detail on CvRDT vs. CmRDT.
 
+### TODO "Provenance" / authorship verification
+
+If distributed replicas are to be managed by many parties that don't
+necessarily trust each other, then a method must be devised to identify trusted
+data vs. untrusted data.  Further, it should be possible for a datastore to
+maintain parallel (potentially contradictory) sets of data related to
+particular entity(ies), authored by different people/organizations/data
+sources.
+
+Git's use of SHAs to maintain a verifiable audit trail of sorts should be
+looked at.  Combined with signing of updates in some capacity, that should
+allow distributed replicas to consume units written elsewhere with as little or
+as much trust as they determine is appropriate.
+
 ### Modeling flexibility
+
+#### Composites / entity references
+
+```
+;; (At time 1234:)
+{:a :x :b {:c :y :db/id 2} :db/id 1}
+
+
+[1234 "tag1" 1 :a :x]
+[1234 "tag1" 1 :b #db/ref[2]]
+[1234 "tag1" 2 :c :y]
+```
+
+or, if we want to refer to a particular version of an entity:
+
+```
+;; (At time 1235:)
+{:c :z :db/id 2}
+{:a :x :b {:c :y :db/id 2} :db/id 1}
+
+[1235 "tag2" 2 :c :z]
+[1235 "tag2" 1 :b #db/ref[2 1234]]
+```
+
+`#db/ref[2 1234]` being a tagged literal, indicating a reference to entity `2`
+at time `1234` (the time component being optional, in case a reference should
+track downstream changes).  The write tag could even be included there, which
+would lock a reference to a particular revision of a unit (thus excluding any
+that match the entity and time constraints but were concurrently written on
+another replica).
 
 #### Graphs
 
