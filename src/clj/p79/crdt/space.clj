@@ -3,10 +3,9 @@
             [p79.crdt.map :as map]
             [cemerick.utc-dates :refer (now)]
             [clojure.set :as set])
-  (:refer-clojure :exclude (remove)))
+  (:refer-clojure :exclude (read)))
 
 (defn uuid [] (str (java.util.UUID/randomUUID)))
-(defn )
 
 (comment
 ;         P
@@ -31,58 +30,94 @@
 
 
 (defprotocol ITupleSpace
-  (tuples [this]
+  (read [this]
      "Returns a lazy seq of the tuples in this space.")
-  (q [this query]
-     "Queries this space, returning a seq of results per the query's specification")
-  (write [this tuples] [this tuples op-meta]
+  (write [this tuples] [this op-meta tuples]
      "Writes the given tuples to this space, optionally along with tuples derived from
 a map of operation metadata.")
-  (as-of [this time]
+  (q [this query]
+     "Queries this space, returning a seq of results per the query's specification")
+  ;; TODO why doesn't this become part of queries, and a parameter to read?
+  (as-of [this] [this time]
          "Returns a new space restricted to tuples written prior to [time]."))
 
-(defn $time [tuple] (nth tuple 0))
-(defn $tag [tuple] (nth tuple 1))
-(defn $e [tuple] (nth tuple 2))
-(defn $a [tuple] (nth tuple 3))
-(defn $v [tuple] (nth tuple 4))
+;; TODO don't quite like the e/a/v naming here
+;; s/p/o is used in RDF, but might be too much of a tie to semweb
+;; [element datum state]? :-P
 
-(defn metadata? [tuple] (nil? ($e tuple)))
-(defn has-time-tag? [tuple] (and (== 5 (count tuple))
-                                 ($time tuple)
-                                 ($tag tuple)))
+(defn metadata? [tuple] (not (:e tuple)))
+
+(defprotocol AsTuples
+  (as-tuples [x]))
+
+(defrecord Tuple [time tag e a v]
+  AsTuples
+  (as-tuples [this] [this]))
+
+(extend-protocol AsTuples
+  nil
+  (as-tuples [x] [])
+  java.util.List
+  (as-tuples [ls]
+    (case (count ls)
+      5 [(apply ->Tuple ls)]
+      3 [(apply ->Tuple nil nil ls)]
+      (throw (IllegalArgumentException.
+               (str "Vector/list cannot be tuple-ized, bad size: " (count ls))))))
+  java.util.Map
+  (as-tuples [m]
+    ;; if Tuple ever loses its inline impl of as-tuples, we *must*
+    ;; rewrite this to dynamically extend AsTuples to concrete Map
+    ;; types; otherwise, there's no way to prefer an extension to
+    ;; Tuple over one to java.util.Map
+    (if-let [e (:db/id m)]
+      (let [time (:db/time m)
+            tag (:db/tag m)
+            s (seq (dissoc m :db/id))]
+        (if s
+          (for [[k v] s]
+            (Tuple. time tag e k v))
+          (throw (IllegalArgumentException. "Empty Map cannot be tuple-ized."))))
+      (throw (IllegalArgumentException. "Map cannot be tuple-ized, no :db/id")))))
 
 (defn- prep-tuples
   ([tuples]
     (prep-tuples (now) (uuid) tuples))
   ([time tag tuples]
     (for [t tuples]
-      (if (has-time-tag? t)
-        t
-        [time tag ($e t) ($a t) ($v t)]))))
-
-(defn- map->tuples
-  [m]
-  )
+      (let [t (if (:time t) t (assoc t :time time))]
+        (if (:tag t) t (assoc t :tag tag))))))
 
 (deftype TupleSpace [tuples as-of metadata]
   ITupleSpace
-  (tuples [this e] (seq tuples))
-  (write [this tuples] (write this tuples nil))
-  (write [this ts op-meta]
-    ; TODO op-meta tuples need same time/tag as 'actual' tuples
-    (TupleSpace. (into tuples (map prep-tuples ts)) as-of metadata))
+  (read [this]
+    (if-not as-of
+      (seq tuples)
+      (filter #(< -1 (compare (:time %) as-of)) tuples)))
+  (write [this tuples] (write this nil tuples))
+  (write [this op-meta ts]
+    (TupleSpace. (->> (mapcat as-tuples ts)
+                   (concat (as-tuples op-meta))
+                   prep-tuples
+                   (into tuples)) 
+                 as-of
+                 metadata))
+  (as-of [this] as-of)
   (as-of [this time]
-    (TupleSpace.
-      (set/select #(<= 0 (compare ($time %) time)) tuples)
-      as-of
-      metadata))
+    (TupleSpace. tuples time metadata))
   
   clojure.lang.IMeta
   (meta [this] metadata)
   clojure.lang.IObj
   (withMeta [this meta] (TupleSpace. tuples as-of meta)))
 
+(defn- time-comparator
+  []
+  (reify java.util.Comparator
+    (compare [this x y]
+      (compare (:time x) (:time y)))))
+
 (defn in-memory
   []
-  (TupleSpace. (sorted-set-by $time) (java.util.Date. 0) {}))
+  (TupleSpace. #{} nil {}))
+

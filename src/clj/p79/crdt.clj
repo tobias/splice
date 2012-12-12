@@ -5,6 +5,11 @@
     "Joins two CvRDTs, merging the provided states, potentially into a
 new lower upper bound."))
 
+(defprotocol Snapshottable
+  (snapshot [this t]
+    "Returns a read-only data structure backed by this CRDT containing its
+states as of time [t] denominated in seconds."))
+
 ; CmRDTs do not appear to be worth the hassle; there's always (?) a CvRDT underneath
 ; (in storage) that can be gradually replicated as necessary
 #_
@@ -27,8 +32,3 @@ and arguments to propagate to other replicas of the CmRDT."))
 (defn truncate-log
   [crdt]
   (vary-meta crdt assoc ::downstream-log []))
-
-(defprotocol Snapshottable
-  (snapshot [this t]
-    "Returns a read-only data structure backed by this CRDT containing its
-states as of time [t] denominated in seconds."))
