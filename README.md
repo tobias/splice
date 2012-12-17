@@ -249,6 +249,43 @@ looked at.  Combined with signing of updates in some capacity, that should
 allow distributed replicas to consume units written elsewhere with as little or
 as much trust as they determine is appropriate.
 
+Good overview of how git hashes data, combines references to object SHAs with
+their filenames in trees:
+
+  http://www-cs-students.stanford.edu/~blynn/gitmagic/ch08.html
+
+If each write contains a hash of its contents (in the write metadata,
+presumably? But surely the write metadata must also be included in the
+calculation of the write's hash?), that includes by reference a hash of any
+prior write, then any downstream replica would be able to verify the write as
+complete (or not).  Pair this with signing of the hash and/or the contents of
+the write, and a replica could verify that a write is intact/untampered-with. 
+
+----
+
+Exchange with Marc Shapiro:
+
+> My thoughts so far are along the lines of using something like a Merkle tree
+> to determine when the state corresponding to a particular update has been
+> completely received — at which point, the CRDT's API can then safely include
+> that state in queries, etc.  I see that Riak already uses Merkle trees during
+> read-repair and (apparently, it's not open source) their multi-datacenter
+> replication; this makes me think I'm sniffing on the right track, even though
+> Riak's usage of Merkle trees won't be helpful to me at an 'application'
+> level.
+> 
+> Something along these lines may be desirable anyway, in service of ensuring
+> data integrity and detecting tampering when replicating with untrusted
+> parties or over untrusted channels.
+
+It's an interesting thought.  I'm not sure Merkle tree is the right approach,
+because of concurrent updates.  You may want to look at this publication about
+signing updates in the presence of concurrent updates in CRDTs:
+http://www.loria.fr/~ignatcla/pmwiki/pmwiki.php/Main/PublicationsByYear?action=bibentry&bibfile=ref.bib&bibref=TruongGroup12
+
+(Title: Authenticating Operation-based History in Collaborative Systems,
+ Hien Thi Thu Truong)
+
 ### Modeling flexibility
 
 #### Composites / entity references
