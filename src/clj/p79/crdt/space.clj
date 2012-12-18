@@ -2,7 +2,8 @@
   (:require [p79.crdt :as crdt]
             [p79.crdt.map :as map]
             [cemerick.utc-dates :refer (now)]
-            [clojure.set :as set])
+            [clojure.set :as set]
+            [clojure.pprint :as pp])
   (:refer-clojure :exclude (read)))
 
 (defn uuid [] (str (java.util.UUID/randomUUID)))
@@ -26,10 +27,53 @@
 [ts tag 4 :rank 0.5]
 )
 
+(defmacro defroottype
+  [type-name ctor-name type-tag value-name value-type value-pred]
+  (let [value-sym (with-meta value-name {:tag value-type})
+        value-field (symbol (str ".-" value-sym))
+        type-tag (str "#" type-tag " ")
+        [arg arg2] [(gensym) (gensym)]
+        [type-arg type-arg2] (map #(with-meta % {:tag type-name}) [arg arg2])]
+    `(do
+       (deftype ~type-name [~value-sym]
+         clojure.lang.IDeref
+         (deref [~arg] (~value-field ~type-arg))
+         Comparable
+         (compareTo [~arg ~arg2]
+           (compare (~value-field ~type-arg) (~value-field ~type-arg2)))
+         Object
+         (toString [~arg] (pr-str ~arg))
+         (hashCode [~arg] (inc (hash (~value-field ~type-arg))))
+         (equals [~arg ~arg2]
+           (and (identical? (type ~arg) (type ~arg2))
+             (= (~value-field ~type-arg) (~value-field ~type-arg2)))))
+       (defmethod print-method ~type-name [~type-arg ^java.io.Writer w#]
+         (.write w# ~type-tag)
+         (print-method (~value-field ~type-arg) w#))
+       (defmethod print-dup ~type-name [o# w#]
+         (print-method o# w#))
+       (#'pp/use-method pp/simple-dispatch ~type-name #'pp/pprint-simple-default)
+       (defn ~(symbol (str ctor-name "?"))
+         ~(str "Returns true iff the sole argument is a " type-name)
+         [x#]
+         (instance? ~type-name x#))
+       (defn ~ctor-name
+         ~(str "Creates a new " type-name)
+         [e#]
+         (when e#
+           (cond
+             (instance? ~type-name e#) e#
+             (instance? ~value-type e#) (~(symbol (str type-name ".")) e#)
+             :else (throw
+                     (IllegalArgumentException.
+                       (str "Cannot create " ~type-name " with value of type "
+                         (class e#))))))))))
 
+(defroottype Entity entity "entity" e String string?)
+(defroottype Ref reference "ref" e Entity entity?)
+(defroottype Tag tag "tag" t String string?)
 
-
-(defprotocol ITupleSpace
+(defprotocol ISpace
   (read [this]
      "Returns a lazy seq of the tuples in this space.")
   (write [this tuples] [this op-meta tuples]
@@ -54,6 +98,13 @@ a map of operation metadata.")
   AsTuples
   (as-tuples [this] [this]))
 
+(defn ->Tuple
+  "Positional factory function for class p79.crdt.space.Tuple
+that coerces any shortcut tag and entity values to Tag and Entiy instances.
+This fn should therefore always be used in preference to the Tuple. ctor."
+  [time op-tag e a v]
+  (Tuple. time (tag op-tag) (entity e) a v))
+
 (extend-protocol AsTuples
   nil
   (as-tuples [x] [])
@@ -76,7 +127,7 @@ a map of operation metadata.")
             s (seq (dissoc m :db/id))]
         (if s
           (for [[k v] s]
-            (Tuple. time tag e k v))
+            (->Tuple time tag e k v))
           (throw (IllegalArgumentException. "Empty Map cannot be tuple-ized."))))
       (throw (IllegalArgumentException. "Map cannot be tuple-ized, no :db/id")))))
 
@@ -84,19 +135,20 @@ a map of operation metadata.")
   ([tuples]
     (prep-tuples (now) (uuid) tuples))
   ([time tag tuples]
-    (for [t tuples]
-      (let [t (if (:time t) t (assoc t :time time))]
-        (if (:tag t) t (assoc t :tag tag))))))
+    (let [tag (p79.crdt.space/tag tag)]
+      (for [t tuples]
+        (let [t (if (:time t) t (assoc t :time time))]
+          (if (:tag t) t (assoc t :tag tag)))))))
 
-(deftype TupleSpace [tuples as-of metadata]
-  ITupleSpace
+(deftype MemSpace [tuples as-of metadata]
+  ISpace
   (read [this]
     (if-not as-of
       (seq tuples)
       (filter #(< -1 (compare (:time %) as-of)) tuples)))
   (write [this tuples] (write this nil tuples))
   (write [this op-meta ts]
-    (TupleSpace. (->> (mapcat as-tuples ts)
+    (MemSpace. (->> (mapcat as-tuples ts)
                    (concat (as-tuples op-meta))
                    prep-tuples
                    (into tuples)) 
@@ -104,12 +156,12 @@ a map of operation metadata.")
                  metadata))
   (as-of [this] as-of)
   (as-of [this time]
-    (TupleSpace. tuples time metadata))
+    (MemSpace. tuples time metadata))
   
   clojure.lang.IMeta
   (meta [this] metadata)
   clojure.lang.IObj
-  (withMeta [this meta] (TupleSpace. tuples as-of meta)))
+  (withMeta [this meta] (MemSpace. tuples as-of meta)))
 
 (defn- time-comparator
   []
@@ -119,5 +171,6 @@ a map of operation metadata.")
 
 (defn in-memory
   []
-  (TupleSpace. #{} nil {}))
+  (MemSpace. #{} nil {}))
+
 
