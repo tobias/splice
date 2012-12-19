@@ -28,14 +28,13 @@
 )
 
 (defmacro defroottype
-  [type-name ctor-name type-tag value-name value-type value-pred]
-  (let [value-sym (with-meta value-name {:tag value-type})
-        value-field (symbol (str ".-" value-sym))
+  [type-name ctor-name type-tag value-name value-pred]
+  (let [value-field (symbol (str ".-" value-name))
         type-tag (str "#" type-tag " ")
         [arg arg2] [(gensym) (gensym)]
         [type-arg type-arg2] (map #(with-meta % {:tag type-name}) [arg arg2])]
     `(do
-       (deftype ~type-name [~value-sym]
+       (deftype ~type-name [~value-name]
          clojure.lang.IDeref
          (deref [~arg] (~value-field ~type-arg))
          Comparable
@@ -63,27 +62,22 @@
          (when e#
            (cond
              (instance? ~type-name e#) e#
-             (instance? ~value-type e#) (~(symbol (str type-name ".")) e#)
+             (~value-pred e#) (~(symbol (str type-name ".")) e#)
              :else (throw
                      (IllegalArgumentException.
                        (str "Cannot create " ~type-name " with value of type "
                          (class e#))))))))))
 
-(defroottype Entity entity "entity" e String string?)
-(defroottype Ref reference "ref" e Entity entity?)
-(defroottype Tag tag "tag" t String string?)
+(defroottype Entity entity "entity" e string?)
+(defroottype Ref reference "ref" e entity?)
+(defroottype Tag tag "tag" t string?)
 
-(defprotocol ISpace
-  (read [this]
-     "Returns a lazy seq of the tuples in this space.")
-  (write [this tuples] [this op-meta tuples]
-     "Writes the given tuples to this space, optionally along with tuples derived from
-a map of operation metadata.")
-  (q [this query]
-     "Queries this space, returning a seq of results per the query's specification")
-  ;; TODO why doesn't this become part of queries, and a parameter to read?
-  (as-of [this] [this time]
-         "Returns a new space restricted to tuples written prior to [time]."))
+(defn tombstone?
+  [x]
+  (and (vector? x) (== 2 (count x))
+    (instance? Tag (first x))))
+
+(defroottype Tombstone tombstone "tombstone" tag-value remove-value-pair?)
 
 ;; TODO don't quite like the e/a/v naming here
 ;; s/p/o is used in RDF, but might be too much of a tie to semweb
@@ -94,7 +88,7 @@ a map of operation metadata.")
 (defprotocol AsTuples
   (as-tuples [x]))
 
-(defrecord Tuple [time tag e a v]
+(defrecord Tuple [e a v time tag]
   AsTuples
   (as-tuples [this] [this]))
 
@@ -102,17 +96,16 @@ a map of operation metadata.")
   "Positional factory function for class p79.crdt.space.Tuple
 that coerces any shortcut tag and entity values to Tag and Entiy instances.
 This fn should therefore always be used in preference to the Tuple. ctor."
-  [time op-tag e a v]
-  (Tuple. time (tag op-tag) (entity e) a v))
+  [e a v time op-tag]
+  (Tuple. (entity e) a v time (tag op-tag)))
 
 (extend-protocol AsTuples
   nil
   (as-tuples [x] [])
   java.util.List
   (as-tuples [ls]
-    (case (count ls)
-      5 [(apply ->Tuple ls)]
-      3 [(apply ->Tuple nil nil ls)]
+    (if (== 5 (count ls))
+      [(apply ->Tuple ls)]
       (throw (IllegalArgumentException.
                (str "Vector/list cannot be tuple-ized, bad size: " (count ls))))))
   java.util.Map
@@ -127,7 +120,7 @@ This fn should therefore always be used in preference to the Tuple. ctor."
             s (seq (dissoc m :db/id))]
         (if s
           (for [[k v] s]
-            (->Tuple time tag e k v))
+            (->Tuple e k v time tag))
           (throw (IllegalArgumentException. "Empty Map cannot be tuple-ized."))))
       (throw (IllegalArgumentException. "Map cannot be tuple-ized, no :db/id")))))
 
@@ -140,8 +133,20 @@ This fn should therefore always be used in preference to the Tuple. ctor."
         (let [t (if (:time t) t (assoc t :time time))]
           (if (:tag t) t (assoc t :tag tag)))))))
 
+(defprotocol Space
+  (read [this]
+     "Returns a lazy seq of the tuples in this space.")
+  (write [this tuples] [this op-meta tuples]
+     "Writes the given tuples to this space, optionally along with tuples derived from
+a map of operation metadata.")
+  (q [this query]
+     "Queries this space, returning a seq of results per the query's specification")
+  ;; TODO why doesn't this become part of queries, and a parameter to read?
+  (as-of [this] [this time]
+         "Returns a new space restricted to tuples written prior to [time]."))
+
 (deftype MemSpace [tuples as-of metadata]
-  ISpace
+  Space
   (read [this]
     (if-not as-of
       (seq tuples)
@@ -149,11 +154,11 @@ This fn should therefore always be used in preference to the Tuple. ctor."
   (write [this tuples] (write this nil tuples))
   (write [this op-meta ts]
     (MemSpace. (->> (mapcat as-tuples ts)
-                   (concat (as-tuples op-meta))
-                   prep-tuples
-                   (into tuples)) 
-                 as-of
-                 metadata))
+                 (concat (as-tuples op-meta))
+                 prep-tuples
+                 (into tuples)) 
+      as-of
+      metadata))
   (as-of [this] as-of)
   (as-of [this time]
     (MemSpace. tuples time metadata))
@@ -173,4 +178,21 @@ This fn should therefore always be used in preference to the Tuple. ctor."
   []
   (MemSpace. #{} nil {}))
 
+;; TODO Q: why does datomic have the indices that it has? Wouldn't one index
+;; per "column" (time, tag, e, a, v) take care of all query possibilities?
+;; (We probably never want to index on v, at least to start.  I don't want to 
+;; think about 'schemas' yet...and, actually, indexing shouldn't be part of
+;; the 'schema' anyway...
+
+(defn index
+  "Returns a sorted-map of the distinct values of [keys] in the seq of
+[maps] mapped to a set of those maps with the corresponding values of [keys]."
+  ([maps keys] (index (sorted-map) maps keys))
+  ([index maps keys]
+    (let [values (apply juxt keys)
+          conj-set (fnil conj #{})]
+      (reduce
+        #(update-in % [(values %2)] conj-set %2)
+        index
+        maps))))
 

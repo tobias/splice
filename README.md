@@ -55,22 +55,30 @@ Atomic unit similar to Datomic datoms, called _units_ for now:
 
 TODO: the terminology around unit/tag/entity/attribute/value is still weak
 
-This is a "unit": `[1382749272 "a5cde-45cc-..." "cea77880-6610..." :name "port79"]`
+This is a "unit":
 
-It consists of five parts:
+```
+[#entity "cea77880-6610..."
+ :name
+ "port79"
+ #inst "2012-12-19T22:19:55.480-00:00"
+ #tag "a5cde-45cc-..."]
+```
 
-1. **time**, the timestamp associated with the operation that created the unit
-2. a **tag**, a unique token associated _only_ with the operation that created
-   the unit
-3. an **entity id** (denoted `e`), a unique token associated with a logical
+It consists of five parts, `[e a v time tag]`:
+
+1. an **entity id**, a unique token associated with a logical
    entity/identity.  Each entity can have many attributes.  (Alternative names:
 entity subject item name element cell)
-4. an **attribute key** (denoted `a`), a value identifying the attribute
+2. an **attribute key**, a value identifying the attribute
    stored by this unit.  Multiple units can provide values for the same
 entity/attribute pair, making for natural sets and multimaps.  (Alterantive
 names: predicate field slot bit cell register part feature aspect)
-5. a **value** (denoted `v`), the value for this unit (Alternative names: value
+3. a **value**, the value for this unit (Alternative names: value
    object datum bit)
+4. **time**, the timestamp associated with the operation that created the unit
+5. a **tag**, a unique token associated _only_ with the operation that created
+   the unit
 
 * `time` and `tag` together identify a single write (which may convey many
   units, including "meta" units describing metadata about the write itself) 
@@ -170,7 +178,7 @@ either a problem, or a premature optimization for a time where there will be >
   * auditing info
   * etc. etc etc
 
-Tuples: `[timestamp tag e? a v?]`
+Tuples: `[e a v timestamp tag]`
 
 ```
 (if e
@@ -180,36 +188,25 @@ Tuples: `[timestamp tag e? a v?]`
   (do (assert v) :operation-metadata))  
 ```
 
-Operation meta: `[timestamp tag nil a v]`
-
-(The particular layout of tuple entries is storage-specific; shown here with:
-
-1. Optional `v` entry at the end, and
-2. Timestamp/tag pair prefixing the "actual" tuple data
-
-because:
-
-1. Makes schema/queryies for e.g. postgres implementation obvious
-2. when representing tuples/meta as vectors/arrays, can efficiently map index
-   => entry
-3. keeping timestamp/tag first allows for easy consistent snapshotting and
-   range-based time "querying" (just a sorted set))
+Operation meta: `[nil a v timestamp tag]`
 
 Example addition, with meta, and removal, with meta:
 
 ```
-[1354222006831 "tUUID1" "eUUID" :tag :p]
-[1354222006831 "tUUID1" nil :user "cemerick"]
-[1354222006831 "tUUID1" nil :source "interactive"]
-[1354222006831 "tUUID1" nil :app "wiki app"]
-[135422200998 "tUUID1" "eUUID" :tag]   ;; this is the 'remove' operation/tuple: no _v_alue
-[135422200998 "tUUID1" nil :user "cemerick"]
-[135422200998 "tUUID1" nil :source "auto-reformatter"]
-[135422200998 "tUUID1" nil :app "wiki app"]
+["eUUID" :tag :p 1354222006831 "tUUID1"]
+[nil :user "cemerick" 1354222006831 "tUUID1"]
+[nil :source "interactive" 1354222006831 "tUUID1"]
+[nil :app "wiki app"]
+;; this is the 'remove' operation/tuple, naming the value and the write that produced it
+;; this gives us Observed-Remove semantics for value removal
+["eUUID" :tag #tombstone ["tUUID1" :p] 135422200998 "tUUID2"]
+[nil :user "cemerick" 135422200998 "tUUID2"]
+[nil :source "auto-reformatter" 135422200998 "tUUID2"]
+[nil :app "wiki app" 135422200998 "tUUID2"]
 ```
 
-Tuple values are not defined for deletes _only_.  The absence of a value in a
-tuple is what marks it as a remove/delete.
+The #dead pair literal containing the `[tag value]` of the value to be removed
+is what indicates a remove.
 
 Operation metadata can never be "deleted" (paired with tombstones), so it
 doesn't need its own tags.
