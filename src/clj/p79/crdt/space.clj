@@ -77,7 +77,7 @@
   (and (vector? x) (== 2 (count x))
     (instance? Tag (first x))))
 
-(defroottype Tombstone tombstone "tombstone" tag-value remove-value-pair?)
+(defroottype Tombstone tombstone "tombstone" tag-value tombstone?)
 
 ;; TODO don't quite like the e/a/v naming here
 ;; s/p/o is used in RDF, but might be too much of a tie to semweb
@@ -145,28 +145,55 @@ a map of operation metadata.")
   (as-of [this] [this time]
          "Returns a new space restricted to tuples written prior to [time]."))
 
-(deftype MemSpace [tuples as-of metadata]
+(defprotocol IndexedSpace
+  (index [this index-type]))
+
+;; TODO Q: why does datomic have the indices that it has? Wouldn't one index
+;; per "column" (time, tag, e, a, v) take care of all query possibilities?
+;; (We probably never want to index on v, at least to start.  I don't want to 
+;; think about 'schemas' yet...and, actually, indexing shouldn't be part of
+;; the 'schema' anyway...
+
+(defn index*
+  "Returns a sorted-map of the distinct values of [keys] in the seq of
+[maps] mapped to a set of those maps with the corresponding values of [keys]."
+  ([maps keys] (index* (sorted-map) maps keys))
+  ([index maps keys]
+    (let [values (apply juxt keys)
+          conj-set (fnil conj #{})]
+      (reduce
+        #(update-in % [(values %2)] conj-set %2)
+        index
+        maps))))
+
+(defn index-values
+  [index]
+  (apply concat (vals index)))
+
+(deftype MemSpace [edx adx timedx tagdx as-of metadata]
   Space
   (read [this]
     (if-not as-of
-      (seq tuples)
-      (filter #(< -1 (compare (:time %) as-of)) tuples)))
+      (index-values timedx)
+      (index-values (subseq timedx <= [as-of]))))
   (write [this tuples] (write this nil tuples))
   (write [this op-meta ts]
-    (MemSpace. (->> (mapcat as-tuples ts)
-                 (concat (as-tuples op-meta))
-                 prep-tuples
-                 (into tuples)) 
-      as-of
-      metadata))
+    (let [tuples (->> (mapcat as-tuples ts)
+                   (concat (as-tuples op-meta))
+                   prep-tuples)
+          [edx adx timedx tagdx] (map index*
+                                   [edx adx timedx tagdx]
+                                   (repeat tuples)
+                                   [[:e] [:a] [:time] [:tag]])]
+      (MemSpace. edx adx timedx tagdx as-of metadata)))
   (as-of [this] as-of)
   (as-of [this time]
-    (MemSpace. tuples time metadata))
+    (MemSpace. edx adx timedx tagdx time metadata))
   
   clojure.lang.IMeta
   (meta [this] metadata)
   clojure.lang.IObj
-  (withMeta [this meta] (MemSpace. tuples as-of meta)))
+  (withMeta [this meta] (MemSpace. edx adx timedx tagdx as-of meta)))
 
 (defn- time-comparator
   []
@@ -176,23 +203,5 @@ a map of operation metadata.")
 
 (defn in-memory
   []
-  (MemSpace. #{} nil {}))
-
-;; TODO Q: why does datomic have the indices that it has? Wouldn't one index
-;; per "column" (time, tag, e, a, v) take care of all query possibilities?
-;; (We probably never want to index on v, at least to start.  I don't want to 
-;; think about 'schemas' yet...and, actually, indexing shouldn't be part of
-;; the 'schema' anyway...
-
-(defn index
-  "Returns a sorted-map of the distinct values of [keys] in the seq of
-[maps] mapped to a set of those maps with the corresponding values of [keys]."
-  ([maps keys] (index (sorted-map) maps keys))
-  ([index maps keys]
-    (let [values (apply juxt keys)
-          conj-set (fnil conj #{})]
-      (reduce
-        #(update-in % [(values %2)] conj-set %2)
-        index
-        maps))))
+  (MemSpace. (sorted-map) (sorted-map) (sorted-map) (sorted-map) nil {}))
 
