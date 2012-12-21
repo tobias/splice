@@ -51,7 +51,7 @@ Should allow us to model damn near anything.
 
 Atomic unit similar to Datomic datoms, called _units_ for now:
 
-`[time tag entity-id attribute value]`
+`[entity-id attribute value tag]`
 
 TODO: the terminology around unit/tag/entity/attribute/value is still weak
 
@@ -61,11 +61,10 @@ This is a "unit":
 [#entity "cea77880-6610..."
  :name
  "port79"
- #inst "2012-12-19T22:19:55.480-00:00"
  #tag "a5cde-45cc-..."]
 ```
 
-It consists of five parts, `[e a v time tag]`:
+It consists of four parts, `[e a v tag]`:
 
 1. an **entity id**, a unique token associated with a logical
    entity/identity.  Each entity can have many attributes.  (Alternative names:
@@ -76,12 +75,12 @@ entity/attribute pair, making for natural sets and multimaps.  (Alterantive
 names: predicate field slot bit cell register part feature aspect)
 3. a **value**, the value for this unit (Alternative names: value
    object datum bit)
-4. **time**, the timestamp associated with the operation that created the unit
-5. a **tag**, a unique token associated _only_ with the operation that created
+4. a **tag**, a unique token associated _only_ with the operation that created
    the unit
 
-* `time` and `tag` together identify a single write (which may convey many
-  units, including "meta" units describing metadata about the write itself) 
+* `tag` identifies a single write (which may convey many units, including
+  "meta" units describing metadata about the write itself; at a minimum write
+metadata _always_ includes a timestamp indicating when the write occurred) 
 * `e` and `tag` need to be globally unique, _always_.  (This implies the use of
   UUIDs, but does not require it, as long as the identifiers used are globally
 unique; in particular, different encodings of the same notion are reasonable).
@@ -193,16 +192,18 @@ Operation meta: `[nil a v timestamp tag]`
 Example addition, with meta, and removal, with meta:
 
 ```
-["eUUID" :tag :p 1354222006831 "tUUID1"]
-[nil :user "cemerick" 1354222006831 "tUUID1"]
-[nil :source "interactive" 1354222006831 "tUUID1"]
-[nil :app "wiki app"]
+["eUUID" :tag :p "tUUID1"]
+[nil :user "cemerick" "tUUID1"]
+[nil :source "interactive" "tUUID1"]
+[nil :app "wiki app" "tUUID1"]
+[nil :time 1354222006831 "tUUID1"]
 ;; this is the 'remove' operation/tuple, naming the value and the write that produced it
 ;; this gives us Observed-Remove semantics for value removal
-["eUUID" :tag #tombstone ["tUUID1" :p] 135422200998 "tUUID2"]
-[nil :user "cemerick" 135422200998 "tUUID2"]
-[nil :source "auto-reformatter" 135422200998 "tUUID2"]
-[nil :app "wiki app" 135422200998 "tUUID2"]
+["eUUID" :tag #tombstone ["tUUID1" :p] "tUUID2"]
+[nil :user "cemerick" "tUUID2"]
+[nil :source "auto-reformatter" "tUUID2"]
+[nil :app "wiki app" "tUUID2"]
+[nil :time 135422200998 "tUUID2"]
 ```
 
 The #dead pair literal containing the `[tag value]` of the value to be removed

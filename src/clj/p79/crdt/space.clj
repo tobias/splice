@@ -44,7 +44,7 @@
          (toString [~arg] (pr-str ~arg))
          (hashCode [~arg] (inc (hash (~value-field ~type-arg))))
          (equals [~arg ~arg2]
-           (and (identical? (type ~arg) (type ~arg2))
+           (and (instance? ~type-name ~arg2)
              (= (~value-field ~type-arg) (~value-field ~type-arg2)))))
        (defmethod print-method ~type-name [~type-arg ^java.io.Writer w#]
          (.write w# ~type-tag)
@@ -70,7 +70,7 @@
 
 (defroottype Entity entity "entity" e string?)
 (defroottype Ref reference "ref" e entity?)
-(defroottype Tag tag "tag" t string?)
+;(defroottype Tag tag "tag" t reference?)
 
 (defn tombstone?
   [x]
@@ -88,7 +88,7 @@
 (defprotocol AsTuples
   (as-tuples [x]))
 
-(defrecord Tuple [e a v time tag]
+(defrecord Tuple [e a v tag]
   AsTuples
   (as-tuples [this] [this]))
 
@@ -96,15 +96,15 @@
   "Positional factory function for class p79.crdt.space.Tuple
 that coerces any shortcut tag and entity values to Tag and Entiy instances.
 This fn should therefore always be used in preference to the Tuple. ctor."
-  [e a v time op-tag]
-  (Tuple. (entity e) a v time (tag op-tag)))
+  [e a v op-tag]
+  (Tuple. (entity e) a v (tag op-tag)))
 
 (extend-protocol AsTuples
   nil
   (as-tuples [x] [])
   java.util.List
   (as-tuples [ls]
-    (if (== 5 (count ls))
+    (if (== 4 (count ls))
       [(apply ->Tuple ls)]
       (throw (IllegalArgumentException.
                (str "Vector/list cannot be tuple-ized, bad size: " (count ls))))))
@@ -114,24 +114,20 @@ This fn should therefore always be used in preference to the Tuple. ctor."
     ;; rewrite this to dynamically extend AsTuples to concrete Map
     ;; types; otherwise, there's no way to prefer an extension to
     ;; Tuple over one to java.util.Map
-    (if-let [e (:db/id m)]
+    (if-let [[_ e] (find m :db/id)]
       (let [time (:db/time m)
             tag (:db/tag m)
             s (seq (dissoc m :db/id))]
         (if s
           (for [[k v] s]
-            (->Tuple e k v time tag))
+            (->Tuple e k v tag))
           (throw (IllegalArgumentException. "Empty Map cannot be tuple-ized."))))
       (throw (IllegalArgumentException. "Map cannot be tuple-ized, no :db/id")))))
 
 (defn- prep-tuples
-  ([tuples]
-    (prep-tuples (now) (uuid) tuples))
-  ([time tag tuples]
-    (let [tag (p79.crdt.space/tag tag)]
-      (for [t tuples]
-        (let [t (if (:time t) t (assoc t :time time))]
-          (if (:tag t) t (assoc t :tag tag)))))))
+  [op-tag tuples]
+  (for [t tuples]
+    (if (:tag t) t (assoc t :tag op-tag))))
 
 (defprotocol Space
   (read [this]
@@ -170,30 +166,33 @@ a map of operation metadata.")
   [index]
   (apply concat (vals index)))
 
-(deftype MemSpace [edx adx timedx tagdx as-of metadata]
+(deftype MemSpace [edx adx tagdx as-of metadata]
   Space
   (read [this]
-    (if-not as-of
+    #_(if-not as-of
       (index-values timedx)
       (index-values (subseq timedx <= [as-of]))))
   (write [this tuples] (write this nil tuples))
   (write [this op-meta ts]
-    (let [tuples (->> (mapcat as-tuples ts)
+    (let [tag (entity (uuid))
+          op-meta (merge {:time (now)} op-meta {:db/id tag})
+          tuples (->> (mapcat as-tuples ts)
                    (concat (as-tuples op-meta))
-                   prep-tuples)
-          [edx adx timedx tagdx] (map index*
-                                   [edx adx timedx tagdx]
-                                   (repeat tuples)
-                                   [[:e] [:a] [:time] [:tag]])]
-      (MemSpace. edx adx timedx tagdx as-of metadata)))
+                   (prep-tuples (reference tag)))
+          [edx adx tagdx] (map index*
+                            [edx adx tagdx]
+                            (repeat tuples)
+                            [[:e] [:a] [:tag]])]
+      (MemSpace. edx adx tagdx as-of metadata)))
   (as-of [this] as-of)
   (as-of [this time]
-    (MemSpace. edx adx timedx tagdx time metadata))
+    (MemSpace. edx adx tagdx time metadata))
+  
   
   clojure.lang.IMeta
   (meta [this] metadata)
   clojure.lang.IObj
-  (withMeta [this meta] (MemSpace. edx adx timedx tagdx as-of meta)))
+  (withMeta [this meta] (MemSpace. edx adx tagdx as-of meta)))
 
 (defn- time-comparator
   []
@@ -203,5 +202,6 @@ a map of operation metadata.")
 
 (defn in-memory
   []
-  (MemSpace. (sorted-map) (sorted-map) (sorted-map) (sorted-map) nil {}))
+  (MemSpace. (sorted-map) (sorted-map) (sorted-map) nil {}))
+
 
