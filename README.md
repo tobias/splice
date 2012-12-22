@@ -259,6 +259,42 @@ prior write, then any downstream replica would be able to verify the write as
 complete (or not).  Pair this with signing of the hash and/or the contents of
 the write, and a replica could verify that a write is intact/untampered-with. 
 
+### Indexing
+
+It is not clear how to determine what indexes to maintain.
+
+As a stupid first step, Datomic's indexes include:
+
+* :eavt
+* :aevt
+* :avet contains datoms for attributes where :db/index = true.
+* :vaet contains datoms for attributes of :db.type/ref
+
+We don't have any notion of :db/index, so #3 can be ignored for now.
+
+`:vaet` makes sense to support efficient reference lookups for tree/graph traversal (in this case, finding referrers, not referents).
+
+Why no `:t*`?
+
+### Query
+
+[e  a  v  tag]
+[e  a  v  tag?]
+[e  a  v? tag]
+[e  a  v? tag?]
+[e  a? v  tag]
+[e  a? v  tag?]
+[e  a? v? tag]
+[e  a? v? tag?]
+[e? a  v  tag]
+[e? a  v  tag?]
+[e? a  v? tag]
+[e? a  v? tag?]
+[e? a? v  tag]
+[e? a? v  tag?]
+[e? a? v? tag]
+[e? a? v? tag?]
+
 ----
 
 Exchange with Marc Shapiro:

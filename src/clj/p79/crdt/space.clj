@@ -137,7 +137,11 @@ This fn should therefore always be used in preference to the Tuple. ctor."
 a map of operation metadata.")
   (q [this query]
      "Queries this space, returning a seq of results per the query's specification")
-  ;; TODO why doesn't this become part of queries, and a parameter to read?
+  ;; don't expose until we know how to efficiently return indexes
+  ;; that incorporate the ambient time filter
+  ;; (can it be done, given that we need to keep existing index entries
+  ;; "live" for replicated updates from the past?)
+  #_
   (as-of [this] [this time]
          "Returns a new space restricted to tuples written prior to [time]."))
 
@@ -150,11 +154,26 @@ a map of operation metadata.")
 ;; think about 'schemas' yet...and, actually, indexing shouldn't be part of
 ;; the 'schema' anyway...
 
+;; need [:aa] to sort after [:a 5 #entity "foo" #ref #entity "bar"] 
+(def index-comparator
+  (reify java.util.Comparator
+    (compare [this [a b c d :as k] [a2 b2 c2 d2 :as k2]]
+      (cond
+        (and a a2) (compare a a2)
+        (and b b2) (compare b b2)
+        (and c c2) (compare c c2)
+        (and d d2) (compare d d2)
+        :else (compare k k2)))))
+
+(def empty-index (sorted-map-by index-comparator))
+
 (defn index*
   "Returns a sorted-map of the distinct values of [keys] in the seq of
 [maps] mapped to a set of those maps with the corresponding values of [keys]."
-  ([maps keys] (index* (sorted-map) maps keys))
+  ([maps keys] (index* empty-index maps keys))
   ([index maps keys]
+    (when-not (sorted? index)
+      (throw (IllegalArgumentException. "Cannot build index on unsorted map")))
     (let [values (apply juxt keys)
           conj-set (fnil conj #{})]
       (reduce
@@ -166,42 +185,47 @@ a map of operation metadata.")
   [index]
   (apply concat (vals index)))
 
-(deftype MemSpace [edx adx tagdx as-of metadata]
-  Space
-  (read [this]
-    #_(if-not as-of
-      (index-values timedx)
-      (index-values (subseq timedx <= [as-of]))))
-  (write [this tuples] (write this nil tuples))
-  (write [this op-meta ts]
-    (let [tag (entity (uuid))
-          op-meta (merge {:time (now)} op-meta {:db/id tag})
-          tuples (->> (mapcat as-tuples ts)
-                   (concat (as-tuples op-meta))
-                   (prep-tuples (reference tag)))
-          [edx adx tagdx] (map index*
-                            [edx adx tagdx]
-                            (repeat tuples)
-                            [[:e] [:a] [:tag]])]
-      (MemSpace. edx adx tagdx as-of metadata)))
-  (as-of [this] as-of)
-  (as-of [this time]
-    (MemSpace. edx adx tagdx time metadata))
-  
+(def index-types {:eavt [:e :a :v :tag]
+                  :aevt [:a :e :v :tag]
+                  :avet [:a :v :e :tag]
+                  :taev [:tag :a :e :v]})
+
+(deftype MemSpace [indexes as-of metadata]
+  IndexedSpace
+  (index [this index-type] (indexes index-type))
   
   clojure.lang.IMeta
   (meta [this] metadata)
   clojure.lang.IObj
-  (withMeta [this meta] (MemSpace. edx adx tagdx as-of meta)))
+  (withMeta [this meta] (MemSpace. indexes as-of meta)))
 
-(defn- time-comparator
-  []
-  (reify java.util.Comparator
-    (compare [this x y]
-      (compare (:time x) (:time y)))))
+(extend-type MemSpace
+  Space
+  (read [this]
+    )
+  (write
+    ([this tuples] (write this nil tuples))
+    ([this op-meta ts]
+      (let [tag (entity (uuid))
+            op-meta (merge {:time (now)} op-meta {:db/id tag})
+            tuples (->> (mapcat as-tuples ts)
+                     (concat (as-tuples op-meta))
+                     (prep-tuples (reference tag)))]
+        (MemSpace.
+          (reduce
+            (fn [indexes [index-type keys]]
+              (update-in indexes [index-type] (fnil index* empty-index) tuples keys))
+            (.-indexes this)
+            index-types)
+          (.-as-of this) (.-metadata this)))))
+  
+  #_
+  (as-of
+    ([this] as-of)
+    ([this time]
+      (MemSpace. (.-indexes this) time (.-metadata this)))))
 
 (defn in-memory
   []
-  (MemSpace. (sorted-map) (sorted-map) (sorted-map) nil {}))
-
+  (MemSpace. {} nil {}))
 
