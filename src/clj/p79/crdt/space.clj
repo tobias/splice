@@ -155,14 +155,24 @@ a map of operation metadata.")
 ;; think about 'schemas' yet...and, actually, indexing shouldn't be part of
 ;; the 'schema' anyway...
 
-;; need [:aa] to sort after [:a 5 #entity "foo" #ref #entity "bar"] 
+(deftype IndexBottom [])
+(deftype IndexTop [])
+(def ^:private index-bottom (IndexBottom.))
+(def ^:private index-top (IndexTop.))
+
+;; need [:aa _ _ _] to sort after [:a 5 #entity "foo" #ref #entity "bar"] 
 (def index-comparator
   (reify java.util.Comparator
     (compare [this k k2]
-      (or (->> (map #(let [type-compare (compare (str (type %)) (str (type %2)))]
-                       (if (zero? type-compare)
-                         (compare % %2)
-                         type-compare))
+      (or (->> (map #(cond
+                       (= index-bottom %) -1
+                       (= index-bottom %2) 1
+                       (= index-top %) 1
+                       (= index-top %2) -1
+                       :else (let [type-compare (compare (str (type %)) (str (type %2)))]
+                               (if (zero? type-compare)
+                                 (compare % %2)
+                                 type-compare)))
                  k k2)
             (remove #{0})
             first)
@@ -235,3 +245,19 @@ a map of operation metadata.")
   []
   (MemSpace. {} nil {}))
 
+(defn- match-tuple
+  [match-vector]
+  (let [[e a v tag] (->> (repeat (- 4 (count match-vector)) '_)
+                      (into match-vector)
+                      (map #(if (list? %) '_ %)))]
+    (Tuple. e a v tag)))
+
+(defn query
+  [space index-name match-vector]
+  (let [match-tuple (match-tuple match-vector)
+        index (index space index-name)
+        index-keys (index-types index-name)
+        match-vector (mapv (partial get match-tuple) index-keys)]
+    (subseq index
+      >= (mapv #(if (= '_ %) index-bottom %) match-vector)
+      <= (mapv #(if (= '_ %) index-top %) match-vector))))
