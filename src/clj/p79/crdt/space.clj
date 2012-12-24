@@ -156,17 +156,19 @@ a map of operation metadata.")
 ;; the 'schema' anyway...
 
 ;; need [:aa] to sort after [:a 5 #entity "foo" #ref #entity "bar"] 
-#_(def index-comparator
+(def index-comparator
   (reify java.util.Comparator
-    (compare [this [a b c d :as k] [a2 b2 c2 d2 :as k2]]
-      (cond
-        (and a a2) (compare a a2)
-        (and b b2) (compare b b2)
-        (and c c2) (compare c c2)
-        (and d d2) (compare d d2)
-        :else (compare k k2)))))
+    (compare [this k k2]
+      (or (->> (map #(let [type-compare (compare (str (type %)) (str (type %2)))]
+                       (if (zero? type-compare)
+                         (compare % %2)
+                         type-compare))
+                 k k2)
+            (remove #{0})
+            first)
+        0))))
 
-(def empty-index (sorted-map))
+(def empty-index (sorted-map-by index-comparator))
 
 (defn index*
   "Returns a sorted-map of the distinct values of [keys] in the seq of
