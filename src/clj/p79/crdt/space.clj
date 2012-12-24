@@ -146,6 +146,7 @@ a map of operation metadata.")
          "Returns a new space restricted to tuples written prior to [time]."))
 
 (defprotocol IndexedSpace
+  (available-indexes [this])
   (index [this index-type]))
 
 ;; TODO Q: why does datomic have the indices that it has? Wouldn't one index
@@ -155,7 +156,7 @@ a map of operation metadata.")
 ;; the 'schema' anyway...
 
 ;; need [:aa] to sort after [:a 5 #entity "foo" #ref #entity "bar"] 
-(def index-comparator
+#_(def index-comparator
   (reify java.util.Comparator
     (compare [this [a b c d :as k] [a2 b2 c2 d2 :as k2]]
       (cond
@@ -165,7 +166,7 @@ a map of operation metadata.")
         (and d d2) (compare d d2)
         :else (compare k k2)))))
 
-(def empty-index (sorted-map-by index-comparator))
+(def empty-index (sorted-map))
 
 (defn index*
   "Returns a sorted-map of the distinct values of [keys] in the seq of
@@ -185,13 +186,16 @@ a map of operation metadata.")
   [index]
   (apply concat (vals index)))
 
-(def index-types {:eavt [:e :a :v :tag]
-                  :aevt [:a :e :v :tag]
-                  :avet [:a :v :e :tag]
-                  :taev [:tag :a :e :v]})
+(def ^:private index-types
+  (into {} (for [index-name [:eav :aev :ave :taev]]
+             [index-name (->> (name index-name)
+                           (map (comp keyword str))
+                           (map #(if (= :t %) :tag %))
+                           vec)])))
 
 (deftype MemSpace [indexes as-of metadata]
   IndexedSpace
+  (available-indexes [this] index-types)
   (index [this index-type] (indexes index-type))
   
   clojure.lang.IMeta
