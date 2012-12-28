@@ -198,12 +198,7 @@ a map of operation metadata.")
   [index]
   (apply concat (vals index)))
 
-(def ^:private index-types
-  (into {} (for [index-name [:eav :aev :ave :taev]]
-             [index-name (->> (name index-name)
-                           (map (comp keyword str))
-                           (map #(if (= :t %) :tag %))
-                           vec)])))
+(def ^:private index-types #{[:e :a :v] [:a :e :v] [:a :v :e] [:tag :a :e :v]})
 
 (deftype MemSpace [indexes as-of metadata]
   IndexedSpace
@@ -229,8 +224,8 @@ a map of operation metadata.")
                      (prep-tuples (reference tag)))]
         (MemSpace.
           (reduce
-            (fn [indexes [index-type keys]]
-              (update-in indexes [index-type] (fnil index* empty-index) tuples keys))
+            (fn [indexes index-keys]
+              (update-in indexes [index-keys] (fnil index* empty-index) tuples index-keys))
             (.-indexes this)
             index-types)
           (.-as-of this) (.-metadata this)))))
