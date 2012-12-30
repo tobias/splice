@@ -2,7 +2,9 @@
   (:require [p79.crdt :as crdt]
             [p79.crdt.map :as map]
             [cemerick.utc-dates :refer (now)]
+            [clojure.contrib.graph :as g]
             [clojure.set :as set]
+            [clojure.string :as str]
             [clojure.pprint :as pp])
   (:refer-clojure :exclude (read)))
 
@@ -70,7 +72,7 @@
 
 (defroottype Entity entity "entity" e string?)
 (defroottype Ref reference "ref" e entity?)
-;(defroottype Tag tag "tag" t reference?)
+(defroottype Tag tag "tag" t reference?)
 
 (defn tombstone?
   [x]
@@ -198,7 +200,8 @@ a map of operation metadata.")
   [index]
   (apply concat (vals index)))
 
-(def ^:private index-types #{[:e :a :v] [:a :e :v] [:a :v :e] [:tag :a :e :v]})
+(def ^:private index-types #{[:e :a :v :tag] [:a :e :v :tag] [:a :v :e :tag] [:tag :a :e :v]
+                             [:v :a :e :tag]})
 
 (deftype MemSpace [indexes as-of metadata]
   IndexedSpace
@@ -243,16 +246,129 @@ a map of operation metadata.")
 (defn- match-tuple
   [match-vector]
   (let [[e a v tag] (->> (repeat (- 4 (count match-vector)) '_)
-                      (into match-vector)
-                      (map #(if (list? %) '_ %)))]
+                      (into match-vector))]
     (Tuple. e a v tag)))
 
-(defn query
-  [space index-name match-vector]
-  (let [match-tuple (match-tuple match-vector)
-        index (index space index-name)
-        index-keys (index-types index-name)
+(defn- query-reorder-clauses
+  [clauses]
+  (sort-by (comp count #(filter #{'_} %) vals match-tuple) clauses))
+
+(defn- binding? [x]
+  (and (symbol? x) (->> x name (re-matches #"\?.+"))))
+
+(defn- any? [x] (= '_ x))
+
+(defn- variable? [x] (or (binding? x) (any? x)))
+
+(defn- pick-index
+  [index-keys clause]
+  (let [bound-keys (set (for [[k v] (match-tuple clause)
+                              :when (and (not (= '_ v))
+                                      (not (binding? v)))]
+                          k))
+        [prefix best-index] (->> index-keys
+                              (map #(vector (count (take-while bound-keys %)) %))
+                              (apply max-key first))]
+    (when (pos? prefix)
+      (with-meta best-index {:score prefix}))))
+
+(defn- free-variables
+  [clause]
+  (set (filter variable? (map val (match-tuple clause)))))
+
+(defn- clause-bindings
+  "Same as `free-variables`, but excludes _"
+  [clause]
+  (let [variables (if (set? clause) clause (free-variables clause))]
+    (set/select binding? variables)))
+
+(defn- pairs
+  [xs]
+  (loop [pairs []
+         [x & xs] xs]
+    (if (empty? xs)
+      pairs
+      (recur (into pairs (map (fn [x2] [x x2]) xs)) xs))))
+
+(defn- plan-where
+  [db clauses]
+  (reduce
+    (fn [plan clause]
+      (let [{prev-bound :bound-bindings prev-binds :bindings} (last plan)
+            prev-bound (set/union prev-bound prev-binds)
+            bound-clause (mapv #(if (get prev-bound %)
+                                  :bound
+                                  %) clause)
+            bindings (clause-bindings clause)]
+        (conj plan {:clause clause
+                    :bound-clause bound-clause
+                    ;; TODO warn when :index is nil!  Here or later?
+                    :index (pick-index (available-indexes db) bound-clause)
+                    :bindings bindings
+                    :bound-bindings prev-bound})))
+    []
+    clauses))
+
+; maintaining "user"-provided clause ordering, largely following the lead of
+; https://groups.google.com/d/topic/datomic/6VkADvLx-QU/discussion
+(defn- plan
+  [db {:keys [select where as]}]
+  (plan-where db where))
+
+(defn match*
+  [space index-keys match-vector]
+  (let [index (index space index-keys)
+        _ (when (nil? index)
+            (throw (IllegalArgumentException. (str "No index available for " match-vector))))
+        match-tuple (match-tuple match-vector)
+        slot-bindings (filter (comp binding? val) match-tuple)
         match-vector (mapv (partial get match-tuple) index-keys)]
-    (subseq index
-      >= (mapv #(if (= '_ %) index-bottom %) match-vector)
-      <= (mapv #(if (= '_ %) index-top %) match-vector))))
+    (->> (subseq index
+           >= (mapv #(if (variable? %) index-bottom %) match-vector)
+           <= (mapv #(if (variable? %) index-top %) match-vector))
+      (mapcat val)
+      (map #(reduce (fn [match [tuple-key binding]]
+                      (assoc match binding (tuple-key %)))
+              {} slot-bindings))
+      set)))
+
+(defn match
+  [space clauses]
+  (let [plan (plan-where space clauses)]
+    (reduce
+      (fn [x {:keys [index clause bindings]}]
+        (let [binding-limits (set/project x bindings)
+              matches (->> (if (empty? binding-limits) #{{}} binding-limits)
+                        (map #(match* space index (replace % clause)))
+                        ;((fn [x] (println x) x))
+                        (apply set/union))]
+          (cond
+            (and (seq matches) (seq x)) (set/join x matches)
+            (seq matches) matches
+            :else x)))
+      nil
+      plan)))
+
+(defn query
+  [space query]
+  (let [matches (match space (:where query))]
+    (map (apply juxt (:select query)) matches)))
+
+(defn clause-graph
+  "Returns a c.c.graph representing the relationships between the given clauses."
+  [clauses]
+  (reduce
+    (fn [g [c c2 :as clauses]]
+      (let [[b b2] (map clause-bindings clauses)]
+        (if (or (= b b2) (not (some b b2)))
+          g
+          (-> (update-in g [:nodes] into [c c2])
+            (update-in [:neighbors] (partial merge-with set/union)
+              (if (set/subset? b b2) {c2 #{c}} {c #{c2}}))))))
+    {:nodes #{} :neighbors {}}
+    (pairs clauses)))
+
+(comment
+  (def g (clause-graph (map :clause p)))
+  (pp/pprint g)
+  (pp/pprint (g/dependency-list g)))

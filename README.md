@@ -278,6 +278,14 @@ Why no `:t*`?
 
 ### Query
 
+* [magic
+  sets](https://encrypted.google.com/search?hl=en&q=%22magic%20sets%22%20datalog);
+I'm not sure what I've implemented so far, but it's surely not thoroughly
+efficient or well-grounded
+* [implementing datalog with
+  core.logic](http://martinsprogrammingblog.blogspot.co.uk/2012/07/replicating-datomicdatalog-queries-with.html)
+— very simple alternative to a "proper" datalog implementation, if necessary
+
 [e  a  v  tag]
 [e  a  v  tag?]
 [e  a  v? tag]
