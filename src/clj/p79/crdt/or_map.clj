@@ -45,7 +45,7 @@
   (cons [this v] (throw (UnsupportedOperationException.)))
   
   clojure.lang.ILookup
-  (valAt [this k] (when->> k (find this) val))
+  (valAt [this k] (some->> k (find this) val))
   (valAt [this k default] (or (get this k) default))
   clojure.lang.Associative
   (containsKey [this k] (contains? entries k))
