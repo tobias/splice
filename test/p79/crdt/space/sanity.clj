@@ -14,8 +14,7 @@
                           :where [[?e :b 12]
                                   [?e :a ?v]]}
       [[:a] [:b]] '{:select [?a]
-                    ; TODO make #entity implicit in e position
-                    :where [[#entity "x" ?a]]}
+                    :where [["x" ?a]]}
       
       #_#_
       [[#entity "y" "c"]

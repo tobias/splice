@@ -302,7 +302,6 @@ a map of operation metadata.")
             bindings (clause-bindings clause)]
         (conj plan {:clause clause
                     :bound-clause bound-clause
-                    ;; TODO warn when :index is nil!  Here or later?
                     :index (pick-index (available-indexes db) bound-clause)
                     :bindings bindings
                     :bound-bindings prev-bound})))
@@ -315,12 +314,21 @@ a map of operation metadata.")
   [db {:keys [select where as]}]
   (plan-where db where))
 
+(defn- coerce-match-tuple
+  "Given a match tuple, returns a new one with bound values coerced appropriately
+(e.g. values in entity position are turned into entity values, etc)."
+  [t]
+  (if (variable? (first t))
+    t
+    (update-in t [0] entity)))
+
 (defn match*
   [space index-keys match-vector]
   (let [index (index space index-keys)
+        ;; TODO this should *warn*, not throw, and just do a full scan
         _ (when (nil? index)
             (throw (IllegalArgumentException. (str "No index available for " match-vector))))
-        match-tuple (match-tuple match-vector)
+        match-tuple (match-tuple (coerce-match-tuple match-vector))
         slot-bindings (filter (comp binding? val) match-tuple)
         match-vector (mapv (partial get match-tuple) index-keys)]
     (->> (subseq index
@@ -340,7 +348,6 @@ a map of operation metadata.")
         (let [binding-limits (set/project x bindings)
               matches (->> (if (empty? binding-limits) #{{}} binding-limits)
                         (map #(match* space index (replace % clause)))
-                        ;((fn [x] (println x) x))
                         (apply set/union))]
           (cond
             (and (seq matches) (seq x)) (set/join x matches)
