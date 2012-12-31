@@ -23,13 +23,8 @@
                  :where [["y" _ _ ?t]
                          [?t :some-meta ?some-meta]]}
       
-      
-      #_#_
-      [[#entity "y" "c"]
-       [#entity "y" 6]] '{:select [?e ?v]
-                          :where [[?xe :a _]
-                                  [?xe ?a 12]
-                                  [?e ?a 6]]})
+      ; unbound select
+      [] '{:select [?e ?v] :where [[?e :b 6]]})
     
     ; entity-reference lookup/coercion / timestamp checks
     (is (neg? (apply compare (first (s/query space '{:select [?xtime ?ytime]

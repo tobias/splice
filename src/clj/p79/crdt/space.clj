@@ -363,7 +363,10 @@ a map of operation metadata.")
 (defn query
   [space query]
   (let [matches (match space (:where query))]
-    (map (apply juxt (:select query)) matches)))
+    (->> matches
+      (map (apply juxt (:select query)))
+      ;; TODO we can do this statically
+      (remove (partial some nil?)))))
 
 (defn clause-graph
   "Returns a c.c.graph representing the relationships between the given clauses."
