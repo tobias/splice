@@ -294,29 +294,29 @@ a map of operation metadata.")
       pairs
       (recur (into pairs (map (fn [x2] [x x2]) xs)) xs))))
 
-(defn- plan-where
-  [db clauses]
-  (reduce
-    (fn [plan clause]
-      (let [{prev-bound :bound-bindings prev-binds :bindings} (last plan)
-            prev-bound (set/union prev-bound prev-binds)
-            bound-clause (mapv #(if (get prev-bound %)
-                                  :bound
-                                  %) clause)
-            bindings (clause-bindings clause)]
-        (conj plan {:clause clause
-                    :bound-clause bound-clause
-                    :index (pick-index (available-indexes db) bound-clause)
-                    :bindings bindings
-                    :bound-bindings prev-bound})))
-    []
-    clauses))
+(defmulti plan #(-> %& second :planner))
 
 ; maintaining "user"-provided clause ordering, largely following the lead of
 ; https://groups.google.com/d/topic/datomic/6VkADvLx-QU/discussion
-(defn- plan
-  [db {:keys [select where as]}]
-  (plan-where db where))
+(defmethod plan :default
+  [db {:keys [select where] :as query}]
+  (update-in query [:where]
+    (fn [clauses]
+      (reduce
+        (fn [plan clause]
+          (let [{prev-bound :bound-bindings prev-binds :bindings} (last plan)
+                prev-bound (set/union prev-bound prev-binds)
+                bound-clause (mapv #(if (get prev-bound %)
+                                      :bound
+                                      %) clause)
+                bindings (clause-bindings clause)]
+            (conj plan {:clause clause
+                        :bound-clause bound-clause
+                        :index (pick-index (available-indexes db) bound-clause)
+                        :bindings bindings
+                        :bound-bindings prev-bound})))
+        []
+        clauses))))
 
 (defn- coerce-match-tuple
   "Given a match tuple, returns a new one with bound values coerced appropriately
@@ -346,25 +346,25 @@ a map of operation metadata.")
 
 (defn match
   [space clauses]
-  (let [plan (plan-where space clauses)]
-    (reduce
-      (fn [x {:keys [index clause bindings]}]
-        (let [binding-limits (set/project x bindings)
-              matches (->> (if (empty? binding-limits) #{{}} binding-limits)
-                        (map #(match* space index (replace % clause)))
-                        (apply set/union))]
-          (cond
-            (and (seq matches) (seq x)) (set/join x matches)
-            (seq matches) matches
-            :else x)))
-      nil
-      plan)))
+  (reduce
+    (fn [x {:keys [index clause bindings]}]
+      (let [binding-limits (set/project x bindings)
+            matches (->> (if (empty? binding-limits) #{{}} binding-limits)
+                      (map #(match* space index (replace % clause)))
+                      (apply set/union))]
+        (cond
+          (and (seq matches) (seq x)) (set/join x matches)
+          (seq matches) matches
+          :else x)))
+    nil
+    clauses))
 
 (defn query
-  [space query]
-  (let [matches (match space (:where query))]
+  [space {:keys [select planner where] :as query}]
+  (let [{:keys [select where] :as query} (plan space query)
+        matches (match space where)]
     (->> matches
-      (map (apply juxt (:select query)))
+      (map (apply juxt select))
       ;; TODO we can do this statically
       (remove (partial some nil?)))))
 
