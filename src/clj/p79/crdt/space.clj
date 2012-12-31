@@ -71,6 +71,10 @@
                          (class e#))))))))))
 
 (defroottype Entity entity "entity" e string?)
+;; TODO not sure if this distinct reference type is worthwhile.
+;; if the primary use case is referring to entities, then #entity "abcd" is
+;; no worse than #ref #entity "abcd", right?  Even the generalized case of e.g.
+;; #ref #s3 "https://..." doesn't provide much (any?) semantic benefit.
 (defroottype Ref reference "ref" e entity?)
 (defroottype Tag tag "tag" t reference?)
 
@@ -320,7 +324,7 @@ a map of operation metadata.")
   [t]
   (if (variable? (first t))
     t
-    (update-in t [0] entity)))
+    (update-in t [0] (comp entity #(if (reference? %) @% %)))))
 
 (defn match*
   [space index-keys match-vector]
