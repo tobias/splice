@@ -4,6 +4,7 @@
             [cemerick.utc-dates :refer (now)]
             [clojure.contrib.graph :as g]
             [clojure.set :as set]
+            [clojure.walk :as walk]
             [clojure.string :as str]
             [clojure.pprint :as pp])
   (:refer-clojure :exclude (read)))
@@ -281,10 +282,13 @@ a map of operation metadata.")
   (set (filter variable? (map val (match-tuple clause)))))
 
 (defn- clause-bindings
-  "Same as `free-variables`, but excludes _"
+  "Same as `free-variables`, but excludes _ and works with match vectors as
+well as expression clauses."
   [clause]
-  (let [variables (if (set? clause) clause (free-variables clause))]
-    (set/select binding? variables)))
+  (->> (tree-seq coll? seq clause)
+    (remove coll?)
+    (filter binding?)
+    set))
 
 (defn- pairs
   [xs]
@@ -296,27 +300,58 @@ a map of operation metadata.")
 
 (defmulti plan #(-> %& second :planner))
 
-; maintaining "user"-provided clause ordering, largely following the lead of
+; All :default planner does is maintain "user"-provided clause ordering,
+; (excl. expression clauses), largely following the lead of
 ; https://groups.google.com/d/topic/datomic/6VkADvLx-QU/discussion
+(defn- reorder-expression-clauses
+  [clauses]
+  (reverse
+    (reduce
+      (fn [clauses expr]
+        (let [expr-bindings (clause-bindings expr)
+              [after before] (split-with
+                               #(empty? (set/intersection expr-bindings (clause-bindings %)))
+                               clauses)]
+          (concat after [expr] before)))
+      (reverse (filter vector? clauses))
+      (filter list? clauses))))
+
+(defn- compile-expression-clause
+  [clause]
+  (let [code `(~'fn [{:syms ~(vec (clause-bindings clause))}]
+                ~clause)]
+    (with-meta (eval code)
+      {:clause clause
+       :code code})))
+
+;; TODO binding function expressions
+
 (defmethod plan :default
   [db {:keys [select where] :as query}]
-  (update-in query [:where]
-    (fn [clauses]
-      (reduce
-        (fn [plan clause]
-          (let [{prev-bound :bound-bindings prev-binds :bindings} (last plan)
-                prev-bound (set/union prev-bound prev-binds)
-                bound-clause (mapv #(if (get prev-bound %)
-                                      :bound
-                                      %) clause)
-                bindings (clause-bindings clause)]
-            (conj plan {:clause clause
-                        :bound-clause bound-clause
-                        :index (pick-index (available-indexes db) bound-clause)
-                        :bindings bindings
-                        :bound-bindings prev-bound})))
-        []
-        clauses))))
+  (assoc query :where
+    (reduce
+      (fn [plan clause]
+        (let [{prev-bound :bound-bindings prev-binds :bindings} (last plan)
+              prev-bound (set/union prev-bound prev-binds)
+              bound-clause (mapv #(if (get prev-bound %)
+                                    :bound
+                                    %) clause)
+              bindings (clause-bindings clause)]
+          (conj plan (merge {:clause clause
+                             :bindings bindings
+                             :bound-bindings prev-bound}
+                       (cond
+                         (vector? clause)
+                         {:bound-clause bound-clause
+                          :index (pick-index (available-indexes db) bound-clause)
+                          :op :match}
+                         (list? clause)
+                         {:predicate (compile-expression-clause clause)
+                          :op :predicate}
+                         :default (throw (IllegalArgumentException.
+                                           (str "Invalid clause: " clause))))))))
+      []
+      (reorder-expression-clauses where))))
 
 (defn- coerce-match-tuple
   "Given a match tuple, returns a new one with bound values coerced appropriately
@@ -331,7 +366,8 @@ a map of operation metadata.")
   (let [index (index space index-keys)
         ;; TODO this should *warn*, not throw, and just do a full scan
         _ (when (nil? index)
-            (throw (IllegalArgumentException. (str "No index available for " match-vector))))
+            (throw (IllegalArgumentException.
+                     (str "No index available for " match-vector))))
         match-tuple (match-tuple (coerce-match-tuple match-vector))
         slot-bindings (filter (comp binding? val) match-tuple)
         match-vector (mapv (partial get match-tuple) index-keys)]
@@ -345,42 +381,57 @@ a map of operation metadata.")
       set)))
 
 (defn match
-  [space clauses]
+  [space previous-matches {:keys [index clause bindings] :as clause-plan}]
+  (let [binding-limits (set/project previous-matches bindings)
+        matches (->> (if (empty? binding-limits) #{{}} binding-limits)
+                  (map #(match* space index (replace % clause)))
+                  (apply set/union))]
+    (cond
+      (and (seq matches) (seq previous-matches))
+      (set/join previous-matches matches)
+      
+      (seq matches) matches
+      :else previous-matches)))
+
+(defn- filter-matches
+  [matches {:keys [predicate]}]
+  (set/select predicate matches))
+
+(defn- query*
+  [space clause-plans]
   (reduce
-    (fn [x {:keys [index clause bindings]}]
-      (let [binding-limits (set/project x bindings)
-            matches (->> (if (empty? binding-limits) #{{}} binding-limits)
-                      (map #(match* space index (replace % clause)))
-                      (apply set/union))]
-        (cond
-          (and (seq matches) (seq x)) (set/join x matches)
-          (seq matches) matches
-          :else x)))
+    (fn [results clause-plan]
+      (case (:op clause-plan)
+        :match (match space results clause-plan)
+        :predicate (filter-matches results clause-plan)))
     nil
-    clauses))
+    clause-plans))
 
 (defn query
   [space {:keys [select planner where] :as query}]
   (let [{:keys [select where] :as query} (plan space query)
-        matches (match space where)]
+        matches (query* space where)]
     (->> matches
       (map (apply juxt select))
       ;; TODO we can do this statically
       (remove (partial some nil?)))))
 
-(defn clause-graph
+(defn- clause-graph
   "Returns a c.c.graph representing the relationships between the given clauses."
   [clauses]
   (reduce
-    (fn [g [c c2 :as clauses]]
-      (let [[b b2] (map clause-bindings clauses)]
-        (if (or (= b b2) (not (some b b2)))
-          g
-          (-> (update-in g [:nodes] into [c c2])
-            (update-in [:neighbors] (partial merge-with set/union)
-              (if (set/subset? b b2) {c2 #{c}} {c #{c2}}))))))
-    {:nodes #{} :neighbors {}}
-    (pairs clauses)))
+    (partial merge-with into)
+    (for [[c c2] (pairs clauses)
+          :let [[b b2] (map clause-bindings [c c2])
+                overlap? (seq (set/intersection b b2))]]
+      {:nodes #{c c2}
+       :neighbors (cond
+                    (not overlap?) {}
+                    (and (list? c) (vector? c2)) {c #{c2}}
+                    (and (list? c2) (vector? c)) {c2 #{c}}
+                    (<= (count (set/difference b b2))
+                      (count (set/difference b2 b))) {c2 #{c}}
+                    :default {c #{c2}})})))
 
 (comment
   (def g (clause-graph (map :clause p)))

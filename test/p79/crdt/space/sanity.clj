@@ -3,6 +3,22 @@
     [clojure.pprint :as pp])
   (:use clojure.test))
 
+(deftest default-planner
+  (is (= '[[?e :g ?v] (pos? ?v) [?e :a ?a] (pos? ?a) [?e :b 5 "tag"]]
+        (#'s/reorder-expression-clauses
+          '[(pos? ?v)
+            [?e :g ?v]
+            (pos? ?a)
+            [?e :a ?a]
+            [?e :b 5 "tag"]]))))
+
+(deftest predicate-expression-compilation
+  (let [expr '(> 30 (inc ?x) ?y)
+        fn (#'s/compile-expression-clause expr)]
+    (is (= {:code '(fn [{:syms [?y ?x]}] (> 30 (inc ?x) ?y))
+            :clause expr}
+          (meta fn)))))
+
 (deftest sanity
   (let [space (-> (s/in-memory)
                 (s/write [{:a 6 :b 12 :db/id "x"}])
@@ -24,7 +40,18 @@
                          [?t :some-meta ?some-meta]]}
       
       ; unbound select
-      [] '{:select [?e ?v] :where [[?e :b 6]]})
+      [] '{:select [?e ?v] :where [[?e :b 6]]}
+      
+      ; predicate expressions
+      [[#entity "y" "c"]] '{:select [?e ?v]
+                            :where [(string? ?v)
+                                    [?e :b ?v]]}
+      [[#entity "y" 6 "c"]] '{:select [?e ?v ?s]
+                              :where [(number? ?v)
+                                      (== (inc ?v) 7)
+                                      [?e :b ?v]
+                                      [?e :b ?s]
+                                      (string? ?s)]})
     
     ; entity-reference lookup/coercion / timestamp checks
     (is (neg? (apply compare (first (s/query space '{:select [?xtime ?ytime]
