@@ -393,17 +393,13 @@ well as expression clauses."
       (seq matches) matches
       :else previous-matches)))
 
-(defn- filter-matches
-  [matches {:keys [predicate]}]
-  (set/select predicate matches))
-
 (defn- query*
   [space clause-plans]
   (reduce
     (fn [results clause-plan]
       (case (:op clause-plan)
         :match (match space results clause-plan)
-        :predicate (filter-matches results clause-plan)))
+        :predicate (set/select (:predicate clause-plan) results)))
     nil
     clause-plans))
 
