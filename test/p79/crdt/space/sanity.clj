@@ -14,8 +14,8 @@
 
 (deftest predicate-expression-compilation
   (let [expr '(> 30 (inc ?x) ?y)
-        fn (#'s/compile-expression-clause expr)]
-    (is (= {:code '(fn [{:syms [?y ?x]}] (> 30 (inc ?x) ?y))
+        fn (#'s/compile-expression-clause '[$a $b] expr)]
+    (is (= {:code '(fn [{:syms [$a $b]} {:syms [?y ?x]}] (> 30 (inc ?x) ?y))
             :clause expr}
           (meta fn)))))
 
@@ -58,7 +58,19 @@
                                                      :where [["x" _ _ ?xwrite]
                                                              [?xwrite :time ?xtime]
                                                              ["y" :b "c" ?ywrite]
-                                                             [?ywrite :time ?ytime]]})))))))
+                                                             [?ywrite :time ?ytime]]})))))
+    
+    ; args
+    (is (= [[#entity "x"]] (s/query space '{:select [?e]
+                                            :args [$a $v]
+                                            :where [[?e $a $v]]}
+                             :b 12)))
+    ; fn args!
+    (is (= [["c"]] (s/query space '{:select [?e]
+                                    :args [$pred]
+                                    :where [($pred ?v)
+                                            [_ :b ?v]]}
+                     string?)))))
 
 #_#_#_
 (def p (#'s/plan yy '{:select [?v ?v2]

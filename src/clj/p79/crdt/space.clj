@@ -317,8 +317,8 @@ well as expression clauses."
       (filter list? clauses))))
 
 (defn- compile-expression-clause
-  [clause]
-  (let [code `(~'fn [{:syms ~(vec (clause-bindings clause))}]
+  [args clause]
+  (let [code `(~'fn [{:syms ~(vec args)} {:syms ~(vec (clause-bindings clause))}]
                 ~clause)]
     (with-meta (eval code)
       {:clause clause
@@ -327,7 +327,7 @@ well as expression clauses."
 ;; TODO binding function expressions
 
 (defmethod plan :default
-  [db {:keys [select where] :as query}]
+  [db {:keys [select args where] :as query}]
   (assoc query :where
     (reduce
       (fn [plan clause]
@@ -346,7 +346,7 @@ well as expression clauses."
                           :index (pick-index (available-indexes db) bound-clause)
                           :op :match}
                          (list? clause)
-                         {:predicate (compile-expression-clause clause)
+                         {:predicate (compile-expression-clause args clause)
                           :op :predicate}
                          :default (throw (IllegalArgumentException.
                                            (str "Invalid clause: " clause))))))))
@@ -394,19 +394,20 @@ well as expression clauses."
       :else previous-matches)))
 
 (defn- query*
-  [space clause-plans]
+  [space {:keys [where] :as query} args]
   (reduce
     (fn [results clause-plan]
       (case (:op clause-plan)
-        :match (match space results clause-plan)
-        :predicate (set/select (:predicate clause-plan) results)))
+        :match (match space results (walk/prewalk-replace args clause-plan))
+        :predicate (set/select (partial (:predicate clause-plan) args) results)))
     nil
-    clause-plans))
+    where))
 
 (defn query
-  [space {:keys [select planner where] :as query}]
+  [space {:keys [select planner args where] :as query} & arg-values]
   (let [{:keys [select where] :as query} (plan space query)
-        matches (query* space where)]
+        args (zipmap args arg-values)
+        matches (query* space query args)]
     (->> matches
       (map (apply juxt select))
       ;; TODO we can do this statically
