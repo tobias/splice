@@ -66,7 +66,7 @@
                                             :where [[?e $a $v]]}
                              :b 12)))
     ; fn args!
-    (is (= [["c"]] (s/query space '{:select [?e]
+    (is (= [["c"]] (s/query space '{:select [?v]
                                     :args [$pred]
                                     :where [($pred ?v)
                                             [_ :b ?v]]}
