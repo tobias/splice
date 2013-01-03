@@ -281,15 +281,6 @@ a map of operation metadata.")
   [clause]
   (set (filter variable? (map val (match-tuple clause)))))
 
-(defn- clause-bindings
-  "Same as `free-variables`, but excludes _ and works with match vectors as
-well as expression clauses."
-  [clause]
-  (->> (tree-seq coll? seq clause)
-    (remove coll?)
-    (filter binding?)
-    set))
-
 (defn- pairs
   [xs]
   (loop [pairs []
@@ -299,6 +290,24 @@ well as expression clauses."
       (recur (into pairs (map (fn [x2] [x x2]) xs)) xs))))
 
 (defmulti plan #(-> %& second :planner))
+
+(def ^:private predicate-clause? list?)
+(defn- function-clause? [x]
+  (and (vector? x) (list? (second x))))
+(defn- expression-clause? [x] (or (predicate-clause? x) (function-clause? x)))
+
+(defn- clause-bindings
+  "Same as `free-variables`, but excludes _ and works with match vectors as
+well as expression clauses."
+  [clause]
+  ; a little hokey about this function clause handling here
+  (let [clause (if (function-clause? clause)
+                 (second clause)
+                 clause)]
+    (->> (tree-seq coll? seq clause)
+      (remove coll?)
+      (filter binding?)
+      set)))
 
 ; All :default planner does is maintain "user"-provided clause ordering,
 ; (excl. expression clauses), largely following the lead of
@@ -313,12 +322,12 @@ well as expression clauses."
                                #(empty? (set/intersection expr-bindings (clause-bindings %)))
                                clauses)]
           (concat after [expr] before)))
-      (reverse (filter vector? clauses))
-      (filter list? clauses))))
+      (reverse (remove expression-clause? clauses))
+      (filter expression-clause? clauses))))
 
 (defn- compile-expression-clause
-  [args clause]
-  (let [code `(~'fn [{:syms ~(vec args)} {:syms ~(vec (clause-bindings clause))}]
+  [args clause-bindings clause]
+  (let [code `(~'fn [{:syms ~(vec args)} {:syms ~(vec clause-bindings)}]
                 ~clause)]
     (with-meta (eval code)
       {:clause clause
@@ -327,8 +336,12 @@ well as expression clauses."
 ;; TODO binding function expressions
 
 (defmethod plan :default
-  [db {:keys [select args where] :as query}]
-  (assoc query :where
+  [db {:keys [select args subs where] :as query}]
+  (assoc query
+    :planned true
+    :subs (into {} (for [[name subquery] subs]
+                     [name (plan space subquery)]))
+    :where
     (reduce
       (fn [plan clause]
         (let [{prev-bound :bound-bindings prev-binds :bindings} (last plan)
@@ -342,11 +355,25 @@ well as expression clauses."
                              :bound-bindings prev-bound}
                        (cond
                          (vector? clause)
-                         {:bound-clause bound-clause
-                          :index (pick-index (available-indexes db) bound-clause)
-                          :op :match}
+                         (if (and (== 2 (count clause)) (list? (last clause)))
+                           (if (= "query" (-> clause last first name))
+                             {:op :subquery
+                              :subquery (-> clause last second)
+                              :args (vec (drop 2 clause))}
+                             (let [result-bindings (first clause)]
+                               {:op :function
+                                :function (compile-expression-clause args
+                                            (clause-bindings (last clause))
+                                            `(when-let [~result-bindings ~(last clause)]
+                                               ~(let [bindings (if (symbol? result-bindings)
+                                                                 #{result-bindings}
+                                                                 (clause-bindings result-bindings))]
+                                                  #{(zipmap (map #(list 'quote %) bindings) bindings)})))}))
+                           {:bound-clause bound-clause
+                            :index (pick-index (available-indexes db) bound-clause)
+                            :op :match})
                          (list? clause)
-                         {:predicate (compile-expression-clause args clause)
+                         {:predicate (compile-expression-clause args (clause-bindings clause) clause)
                           :op :predicate}
                          :default (throw (IllegalArgumentException.
                                            (str "Invalid clause: " clause))))))))
@@ -393,23 +420,40 @@ well as expression clauses."
       (seq matches) matches
       :else previous-matches)))
 
+(declare query)
+
 (defn- query*
-  [space {:keys [where] :as query} args]
+  [space q args]
   (reduce
     (fn [results clause-plan]
       (case (:op clause-plan)
         :match (match space results (walk/prewalk-replace args clause-plan))
-        :predicate (set/select (partial (:predicate clause-plan) args) results)))
+        :predicate (set/select (partial (:predicate clause-plan) args) results)
+        :function (let [function (:function clause-plan)]
+                    (->> results
+                      (map #(set/join #{%} (function args %)))
+                      (apply set/union)))
+        :subquery (let [subquery (-> (:subs q)
+                                   (get (:subquery clause-plan))
+                                   (update-in [:subs] #(merge (:subs q) %)))
+                        ; TODO we're losing the higher-level argument bindings here?
+                        ; that may be a good thing, in terms of minimizing confusion around
+                        ; naming/shadowing of arguments
+                        args (map #(walk/prewalk-replace % (:args clause-plan)) results)]
+                    (->> (mapcat #(apply query space subquery %) args)
+                      (map #(zipmap (:select q) %))
+                      set
+                      (set/join results)))))
     nil
-    where))
+    (:where q)))
 
 (defn query
-  [space {:keys [select planner args where] :as query} & arg-values]
-  (let [{:keys [select where] :as query} (plan space query)
+  [space {:keys [select planner planned args subs where] :as query} & arg-values]
+  (let [query (if planned query (plan space query))
         args (zipmap args arg-values)
         matches (query* space query args)]
     (->> matches
-      (map (apply juxt select))
+      (map (apply juxt (:select query)))
       ;; TODO we can do this statically
       (remove (partial some nil?)))))
 

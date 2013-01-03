@@ -14,7 +14,7 @@
 
 (deftest predicate-expression-compilation
   (let [expr '(> 30 (inc ?x) ?y)
-        fn (#'s/compile-expression-clause '[$a $b] expr)]
+        fn (#'s/compile-expression-clause '[$a $b] (#'s/clause-bindings expr) expr)]
     (is (= {:code '(fn [{:syms [$a $b]} {:syms [?y ?x]}] (> 30 (inc ?x) ?y))
             :clause expr}
           (meta fn)))))
@@ -51,7 +51,22 @@
                                       (== (inc ?v) 7)
                                       [?e :b ?v]
                                       [?e :b ?s]
-                                      (string? ?s)]})
+                                      (string? ?s)]}
+      
+      ; function expressions
+      [[6 [0 1]] [12 [0 1 2 3]]] '{:select [?v ?range]
+                                   :where [[_ :b ?v]
+                                           (number? ?v)
+                                           [?range (range (/ ?v 3))]]}
+      [[6 3] [12 5]] '{:select [?v ?k]
+                       :where [[_ :b ?v]
+                               (number? ?v)
+                               [?k (inc (/ ?v 3))]]}
+      ; ...with result destructuring
+      [[6 0] [12 2]] '{:select [?v ?k]
+                                   :where [[_ :b ?v]
+                                           (number? ?v)
+                                           [[_ _ ?k] (range (/ ?v 3) -1 -1)]]})
     
     ; entity-reference lookup/coercion / timestamp checks
     (is (neg? (apply compare (first (s/query space '{:select [?xtime ?ytime]
