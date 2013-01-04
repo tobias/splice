@@ -64,9 +64,9 @@
                                [?k (inc (/ ?v 3))]]}
       ; ...with result destructuring
       [[6 0] [12 2]] '{:select [?v ?k]
-                                   :where [[_ :b ?v]
-                                           (number? ?v)
-                                           [[_ _ ?k] (range (/ ?v 3) -1 -1)]]})
+                       :where [[_ :b ?v]
+                               (number? ?v)
+                               [[_ _ ?k] (range (/ ?v 3) -1 -1)]]})
     
     ; entity-reference lookup/coercion / timestamp checks
     (is (neg? (apply compare (first (s/query space '{:select [?xtime ?ytime]
@@ -76,10 +76,10 @@
                                                              [?ywrite :time ?ytime]]})))))
     
     ; args
-    (is (= [[#entity "x"]] (s/query space '{:select [?e]
-                                            :args [$a $v]
-                                            :where [[?e $a $v]]}
-                             :b 12)))
+    (is (= [[#entity "x" :b 12]] (s/query space '{:select [?e $a $v]
+                                                  :args [$a $v]
+                                                  :where [[?e $a $v]]}
+                                   :b 12)))
     ; fn args!
     (is (= [["c"]] (s/query space '{:select [?v]
                                     :args [$pred]

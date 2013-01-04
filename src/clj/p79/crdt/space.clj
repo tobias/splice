@@ -340,13 +340,13 @@ well as expression clauses."
   (assoc query
     :planned true
     :subs (into {} (for [[name subquery] subs]
-                     [name (plan space subquery)]))
+                     [name (plan db subquery)]))
     :where
     (reduce
       (fn [plan clause]
         (let [{prev-bound :bound-bindings prev-binds :bindings} (last plan)
               prev-bound (set/union prev-bound prev-binds)
-              bound-clause (mapv #(if (get prev-bound %)
+              bound-clause (mapv #(if (or (get prev-bound %) (some #{%} args))
                                     :bound
                                     %) clause)
               bindings (clause-bindings clause)]
@@ -359,7 +359,7 @@ well as expression clauses."
                            (if (= "query" (-> clause last first name))
                              {:op :subquery
                               :subquery (-> clause last second)
-                              :args (vec (drop 2 clause))}
+                              :args (->> clause last (drop 2) vec)}
                              (let [result-bindings (first clause)]
                                {:op :function
                                 :function (compile-expression-clause args
@@ -441,7 +441,7 @@ well as expression clauses."
                         ; naming/shadowing of arguments
                         args (map #(walk/prewalk-replace % (:args clause-plan)) results)]
                     (->> (mapcat #(apply query space subquery %) args)
-                      (map #(zipmap (:select q) %))
+                      (map #(zipmap (:select subquery) %))
                       set
                       (set/join results)))))
     nil
@@ -452,7 +452,7 @@ well as expression clauses."
   (let [query (if planned query (plan space query))
         args (zipmap args arg-values)
         matches (query* space query args)]
-    (->> matches
+    (->> (set/join matches #{args})
       (map (apply juxt (:select query)))
       ;; TODO we can do this statically
       (remove (partial some nil?)))))
