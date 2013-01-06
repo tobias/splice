@@ -2,6 +2,7 @@
   (:require [p79.crdt :as crdt]
             [p79.crdt.map :as map]
             [cemerick.utc-dates :refer (now)]
+            [clojure.core.match :as match]
             [clojure.contrib.graph :as g]
             [clojure.set :as set]
             [clojure.walk :as walk]
@@ -335,50 +336,62 @@ well as expression clauses."
 
 ;; TODO binding function expressions
 
+(defn- plan-clause*
+  [db args bound-clause clause]
+  (match/match [clause]
+    
+    [(clause :guard list?)]
+    {:predicate (compile-expression-clause args
+                  (clause-bindings clause)
+                  clause)
+     :op :predicate}
+    
+    [[destructuring (['q subquery-name & arguments] :seq :guard list?)]]
+    {:op :subquery
+     :subquery subquery-name
+     :args (vec arguments)}
+    
+    [[destructuring (fn-expr :guard list?)]]
+    {:op :function
+     :function (compile-expression-clause args
+                 (clause-bindings fn-expr)
+                 `(when-let [~destructuring ~fn-expr]
+                    ~(let [bindings (if (symbol? destructuring)
+                                      #{destructuring}
+                                      (clause-bindings destructuring))]
+                       #{(zipmap (map #(list 'quote %) bindings) bindings)})))}
+    
+    [([& _] :guard (partial every? (complement coll?)))]
+    {:bound-clause bound-clause
+     :index (pick-index (available-indexes db) bound-clause)
+     :op :match}
+    
+    :else (throw (IllegalArgumentException. (str "Invalid clause: " clause)))))
+
+(defn- plan-clause
+  [db {:keys [args] :as query} plan clause]
+  (let [{prev-bound :bound-bindings prev-binds :bindings} (-> plan meta :last-clause)
+        prev-bound (set/union prev-bound prev-binds)
+        bound-clause (mapv #(if (or (get prev-bound %) (some #{%} args))
+                              :bound
+                              %) clause)
+        bindings (clause-bindings clause)
+        planned-clause (merge {:clause clause
+                               :bindings bindings
+                               :bound-bindings prev-bound}
+                         (plan-clause* db args bound-clause clause))]
+    (conj
+      (with-meta plan {:last-clause planned-clause})
+      planned-clause)))
+
 (defmethod plan :default
   [db {:keys [select args subs where] :as query}]
   (assoc query
     :planned true
     :subs (into {} (for [[name subquery] subs]
                      [name (plan db subquery)]))
-    :where
-    (reduce
-      (fn [plan clause]
-        (let [{prev-bound :bound-bindings prev-binds :bindings} (last plan)
-              prev-bound (set/union prev-bound prev-binds)
-              bound-clause (mapv #(if (or (get prev-bound %) (some #{%} args))
-                                    :bound
-                                    %) clause)
-              bindings (clause-bindings clause)]
-          (conj plan (merge {:clause clause
-                             :bindings bindings
-                             :bound-bindings prev-bound}
-                       (cond
-                         (vector? clause)
-                         (if (and (== 2 (count clause)) (list? (last clause)))
-                           (if (= "query" (-> clause last first name))
-                             {:op :subquery
-                              :subquery (-> clause last second)
-                              :args (->> clause last (drop 2) vec)}
-                             (let [result-bindings (first clause)]
-                               {:op :function
-                                :function (compile-expression-clause args
-                                            (clause-bindings (last clause))
-                                            `(when-let [~result-bindings ~(last clause)]
-                                               ~(let [bindings (if (symbol? result-bindings)
-                                                                 #{result-bindings}
-                                                                 (clause-bindings result-bindings))]
-                                                  #{(zipmap (map #(list 'quote %) bindings) bindings)})))}))
-                           {:bound-clause bound-clause
-                            :index (pick-index (available-indexes db) bound-clause)
-                            :op :match})
-                         (list? clause)
-                         {:predicate (compile-expression-clause args (clause-bindings clause) clause)
-                          :op :predicate}
-                         :default (throw (IllegalArgumentException.
-                                           (str "Invalid clause: " clause))))))))
-      []
-      (reorder-expression-clauses where))))
+    :where (reduce (partial plan-clause db query)
+             [] (reorder-expression-clauses where))))
 
 (defn- coerce-match-tuple
   "Given a match tuple, returns a new one with bound values coerced appropriately
