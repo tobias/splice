@@ -397,9 +397,15 @@ well as expression clauses."
   "Given a match tuple, returns a new one with bound values coerced appropriately
 (e.g. values in entity position are turned into entity values, etc)."
   [t]
-  (if (variable? (first t))
-    t
-    (update-in t [0] (comp entity #(if (reference? %) @% %)))))
+  (-> t
+    (update-in [:e] #(cond
+                       (variable? %) %
+                       (reference? %) (entity @%)
+                       :default (entity %)))
+    (update-in [:tag] #(cond
+                         (variable? %) %
+                         (entity? %) (reference %)
+                         :else (reference (entity %))))))
 
 ; TODO eventually compile fns for each match-vector that use
 ; core.match for optimal filtering after index lookup
@@ -411,8 +417,8 @@ well as expression clauses."
         _ (when (nil? index)
             (throw (IllegalArgumentException.
                      (str "No index available for " match-vector))))
-        binding-tuple (match-tuple (coerce-match-tuple binding-vector))
-        match-tuple (match-tuple (coerce-match-tuple match-vector))
+        binding-tuple (coerce-match-tuple (match-tuple binding-vector))
+        match-tuple (coerce-match-tuple (match-tuple match-vector))
         slot-bindings (filter (comp binding? val) binding-tuple)
         bound-vector (apply juxt (map first (remove (comp variable? val) match-tuple)))
         match-bounds (bound-vector match-tuple)
@@ -465,7 +471,7 @@ well as expression clauses."
     nil
     (:where q)))
 
-(defn query
+(defn q
   [space {:keys [select planner planned args subs where] :as query} & arg-values]
   (let [query (if planned query (plan space query))
         args (zipmap args arg-values)

@@ -1,5 +1,5 @@
 (ns p79.crdt.space.sanity
-  (:require [p79.crdt.space :as s]
+  (:require [p79.crdt.space :as s :refer (in-memory write q)]
     [clojure.pprint :as pp])
   (:use clojure.test))
 
@@ -20,12 +20,12 @@
           (meta fn)))))
 
 (deftest sanity
-  (let [space (-> (s/in-memory)
-                (s/write [{:a 6 :b 12 :db/id "x"}])
-                (s/write {:some-meta :p} [{:b 6 :db/id "y"}])
-                (s/write {:some-meta true} [{:b "c" :db/id "y"}]))]
+  (let [space (-> (in-memory)
+                (write [{:a 6 :b 12 :db/id "x"}])
+                (write {:some-meta :p} [{:b 6 :db/id "y"}])
+                (write {:some-meta true} [{:b "c" :db/id "y"}]))]
     (are [result query] (= (set result)
-                          (set (s/query space query)))
+                          (set (q space query)))
       [[#entity "x" 6]] '{:select [?e ?v]
                           :where [[?e :b 12]
                                   [?e :a ?v]]}
@@ -52,6 +52,9 @@
       [[true] [:p]] '{:select [?some-meta]
                       :where [["y" _ _ ?t]
                               [?t :some-meta ?some-meta]]}
+      [[#entity "y" true] [#entity "y" :p]] '{:select [?e ?some-meta]
+                                              :where [[?t :some-meta ?some-meta]
+                                                      [?e :b _ ?t]]}
       
       ; unbound select
       [] '{:select [?e ?v] :where [[?e :b 6]]}
@@ -83,19 +86,19 @@
                                [[_ _ ?k] (range (/ ?v 3) -1 -1)]]})
     
     ; entity-reference lookup/coercion / timestamp checks
-    (is (neg? (apply compare (first (s/query space '{:select [?xtime ?ytime]
+    (is (neg? (apply compare (first (q space '{:select [?xtime ?ytime]
                                                      :where [["x" _ _ ?xwrite]
                                                              [?xwrite :time ?xtime]
                                                              ["y" :b "c" ?ywrite]
                                                              [?ywrite :time ?ytime]]})))))
     
     ; args
-    (is (= #{[#entity "x" :b 12]} (s/query space '{:select [?e $a $v]
+    (is (= #{[#entity "x" :b 12]} (q space '{:select [?e $a $v]
                                                    :args [$a $v]
                                                    :where [[?e $a $v]]}
                                     :b 12)))
     ; fn args!
-    (is (= #{["c"]} (s/query space '{:select [?v]
+    (is (= #{["c"]} (q space '{:select [?v]
                                      :args [$pred]
                                      :where [($pred ?v)
                                              [_ :b ?v]]}
