@@ -401,6 +401,9 @@ well as expression clauses."
     t
     (update-in t [0] (comp entity #(if (reference? %) @% %)))))
 
+; TODO eventually compile fns for each match-vector that use
+; core.match for optimal filtering after index lookup
+
 (defn match*
   [space index-keys match-vector]
   (let [index (index space index-keys)
@@ -410,11 +413,14 @@ well as expression clauses."
                      (str "No index available for " match-vector))))
         match-tuple (match-tuple (coerce-match-tuple match-vector))
         slot-bindings (filter (comp binding? val) match-tuple)
+        bound-vector (apply juxt (map first (remove (comp variable? val) match-tuple)))
+        match-bounds (bound-vector match-tuple)
         match-vector (mapv (partial get match-tuple) index-keys)]
     (->> (subseq index
            >= (mapv #(if (variable? %) index-bottom %) match-vector)
            <= (mapv #(if (variable? %) index-top %) match-vector))
       (mapcat val)
+      (filter #(= match-bounds (bound-vector %)))
       (map #(reduce (fn [match [tuple-key binding]]
                       (assoc match binding (tuple-key %)))
               {} slot-bindings))

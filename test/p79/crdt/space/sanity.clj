@@ -29,10 +29,13 @@
       [[#entity "x" 6]] '{:select [?e ?v]
                           :where [[?e :b 12]
                                   [?e :a ?v]]}
-      
       ; entity-position coercion
       [[:a] [:b]] '{:select [?a]
                     :where [["x" ?a]]}
+      
+      [[:a]] '{:select [?a]
+               :where [["x" ?a 6]]}
+      
      
       ; "user"-provided meta
       [[true]] '{:select [?some-meta]
