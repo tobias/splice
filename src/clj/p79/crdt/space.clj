@@ -405,14 +405,15 @@ well as expression clauses."
 ; core.match for optimal filtering after index lookup
 
 (defn match*
-  [space index-keys match-vector]
+  [space index-keys match-vector binding-vector]
   (let [index (index space index-keys)
         ;; TODO this should *warn*, not throw, and just do a full scan
         _ (when (nil? index)
             (throw (IllegalArgumentException.
                      (str "No index available for " match-vector))))
+        binding-tuple (match-tuple (coerce-match-tuple binding-vector))
         match-tuple (match-tuple (coerce-match-tuple match-vector))
-        slot-bindings (filter (comp binding? val) match-tuple)
+        slot-bindings (filter (comp binding? val) binding-tuple)
         bound-vector (apply juxt (map first (remove (comp variable? val) match-tuple)))
         match-bounds (bound-vector match-tuple)
         match-vector (mapv (partial get match-tuple) index-keys)]
@@ -422,22 +423,20 @@ well as expression clauses."
       (mapcat val)
       (filter #(= match-bounds (bound-vector %)))
       (map #(reduce (fn [match [tuple-key binding]]
-                      (assoc match binding (tuple-key %)))
+                      (let [x (tuple-key %)]
+                        (assoc match binding (if (reference? x) @x x))))
               {} slot-bindings))
       set)))
 
 (defn match
   [space previous-matches {:keys [index clause bindings] :as clause-plan}]
-  (let [binding-limits (set/project previous-matches bindings)
-        matches (->> (if (empty? binding-limits) #{{}} binding-limits)
-                  (map #(match* space index (replace % clause)))
-                  (apply set/union))]
-    (cond
-      (and (seq matches) (seq previous-matches))
-      (set/join previous-matches matches)
-      
-      (seq matches) matches
-      :else previous-matches)))
+  (let [previous-matches (if (empty? previous-matches) #{{}} previous-matches)]
+    (->> previous-matches
+      (map #(let [matches (match* space index (replace % clause) clause)]
+              (if (seq matches)
+                (set/join previous-matches matches)
+                #{})))
+      (apply set/union))))
 
 (declare query)
 

@@ -22,7 +22,7 @@
 (deftest sanity
   (let [space (-> (s/in-memory)
                 (s/write [{:a 6 :b 12 :db/id "x"}])
-                (s/write [{:b 6 :db/id "y"}])
+                (s/write {:some-meta :p} [{:b 6 :db/id "y"}])
                 (s/write {:some-meta true} [{:b "c" :db/id "y"}]))]
     (are [result query] (= (set result)
                           (set (s/query space query)))
@@ -36,11 +36,22 @@
       [[:a]] '{:select [?a]
                :where [["x" ?a 6]]}
       
+      ; result narrowing
+      [[#entity "x"] [#entity "y"]] '{:select [?e]
+                                      :where [[?e :b]]}
+      [[#entity "x"]] '{:select [?e]
+                        :where [[?e :b]
+                                [?e :a 6]]}
+      [[:a] [:b]] '{:select [?a]
+                    :where [[_ ?a 6]]}
+      [[:b]] '{:select [?a]
+               :where [[_ ?a 6]
+                       [_ ?a 12]]}
      
       ; "user"-provided meta
-      [[true]] '{:select [?some-meta]
-                 :where [["y" _ _ ?t]
-                         [?t :some-meta ?some-meta]]}
+      [[true] [:p]] '{:select [?some-meta]
+                      :where [["y" _ _ ?t]
+                              [?t :some-meta ?some-meta]]}
       
       ; unbound select
       [] '{:select [?e ?v] :where [[?e :b 6]]}
