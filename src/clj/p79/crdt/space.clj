@@ -334,19 +334,31 @@ well as expression clauses."
       {:clause clause
        :code code})))
 
-;; TODO binding function expressions
+(declare plan-clause)
 
 (defn- plan-clause*
   [db args bound-clause clause]
   (match/match [clause]
     
-    [(clause :guard list?)]
+    [(_ :guard set?)]
+    {:op :disjunction
+     :clauses (if (every? vector? clause)
+                (mapv
+                  #(reduce (partial plan-clause db args)
+                     [] (reorder-expression-clauses %))  
+                  clause)
+                (throw (IllegalArgumentException.
+                         (str "Invalid disjunction; each sub-clause must be a vector (conjunction): "
+                           clause))))}
+    
+    [(_ :guard list?)]
     {:predicate (compile-expression-clause args
                   (clause-bindings clause)
                   clause)
      :op :predicate}
     
     [[destructuring (['q subquery-name & arguments] :seq :guard list?)]]
+    ;; TODO there's no way this can work, destructuring is never used...yet the tests pass :-(
     {:op :subquery
      :subquery subquery-name
      :args (vec arguments)}
@@ -369,7 +381,7 @@ well as expression clauses."
     :else (throw (IllegalArgumentException. (str "Invalid clause: " clause)))))
 
 (defn- plan-clause
-  [db {:keys [args] :as query} plan clause]
+  [db args plan clause]
   (let [{prev-bound :bound-bindings prev-binds :bindings} (-> plan meta :last-clause)
         prev-bound (set/union prev-bound prev-binds)
         bound-clause (mapv #(if (or (get prev-bound %) (some #{%} args))
@@ -390,8 +402,9 @@ well as expression clauses."
     :planned true
     :subs (into {} (for [[name subquery] subs]
                      [name (plan db subquery)]))
-    :where (reduce (partial plan-clause db query)
-             [] (reorder-expression-clauses where))))
+    :where (let [where (if (set? where) [where] where)]
+             (reduce (partial plan-clause db (:args query))
+               [] (reorder-expression-clauses where)))))
 
 (defn- coerce-match-tuple
   "Given a match tuple, returns a new one with bound values coerced appropriately
@@ -457,6 +470,9 @@ well as expression clauses."
                     (->> results
                       (map #(set/join #{%} (function args %)))
                       (apply set/union)))
+        :disjunction (->> (:clauses clause-plan)
+                       (map #(query* space (assoc q :where %) args))
+                       (apply set/union))
         :subquery (let [subquery (-> (:subs q)
                                    (get (:subquery clause-plan))
                                    (update-in [:subs] #(merge (:subs q) %)))

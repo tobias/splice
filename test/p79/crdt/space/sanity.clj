@@ -59,6 +59,22 @@
       ; unbound select
       [] '{:select [?e ?v] :where [[?e :b 6]]}
       
+      ; disjunction
+      [[#entity "x"] [#entity "y"]] '{:select [?e]
+                                      :where #{[[?e :b 12]]
+                                               [[?e :b 6]]}}
+      [[#entity "y" :p] [#entity "x" 6]] '{:select [?e ?v]
+                                           :where [[?e :b]
+                                                   #{[[?e :a ?v]]
+                                                     [[?t :some-meta ?v]
+                                                      ; TODO this pattern should
+                                                      ; not require the not=
+                                                      ; to avoid matching the ?e
+                                                      ; of meta tuples
+                                                      [?e _ _ ?t]
+                                                      (not= ?e ?t)
+                                                      (keyword? ?v)]}]}
+      
       ; predicate expressions
       [[#entity "y" "c"]] '{:select [?e ?v]
                             :where [(string? ?v)
@@ -104,18 +120,3 @@
                                              [_ :b ?v]]}
                       string?)))))
 
-#_#_#_
-(def p (#'s/plan yy '{:select [?v ?v2]
-                      :where [[?e :b 6]
-                              [?e :b 7]
-                              [?e :c ?v]
-                              [?f ?v2 2]
-                              [?f :d ?v2]
-                              [?f :a _]
-                              ]}))
-
-(pp/pprint p)
-
-(pp/pprint (s/query yy '{:select [?a ?v]
-                         :where [[_ :b ?v]
-                                 [_ ?a ?v]]}))
