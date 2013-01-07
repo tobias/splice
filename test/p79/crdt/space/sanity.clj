@@ -90,16 +90,16 @@
                                                              [?ywrite :time ?ytime]]})))))
     
     ; args
-    (is (= [[#entity "x" :b 12]] (s/query space '{:select [?e $a $v]
-                                                  :args [$a $v]
-                                                  :where [[?e $a $v]]}
-                                   :b 12)))
+    (is (= #{[#entity "x" :b 12]} (s/query space '{:select [?e $a $v]
+                                                   :args [$a $v]
+                                                   :where [[?e $a $v]]}
+                                    :b 12)))
     ; fn args!
-    (is (= [["c"]] (s/query space '{:select [?v]
-                                    :args [$pred]
-                                    :where [($pred ?v)
-                                            [_ :b ?v]]}
-                     string?)))))
+    (is (= #{["c"]} (s/query space '{:select [?v]
+                                     :args [$pred]
+                                     :where [($pred ?v)
+                                             [_ :b ?v]]}
+                      string?)))))
 
 #_#_#_
 (def p (#'s/plan yy '{:select [?v ?v2]

@@ -473,7 +473,8 @@ well as expression clauses."
     (->> (set/join matches #{args})
       (map (apply juxt (:select query)))
       ;; TODO we can do this statically
-      (remove (partial some nil?)))))
+      (remove (partial some nil?))
+      set)))
 
 (defn- clause-graph
   "Returns a c.c.graph representing the relationships between the given clauses."
