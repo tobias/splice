@@ -327,8 +327,8 @@ well as expression clauses."
       (filter expression-clause? clauses))))
 
 (defn- compile-expression-clause
-  [args clause-bindings clause]
-  (let [code `(~'fn [{:syms ~(vec args)} {:syms ~(vec clause-bindings)}]
+  [clause-bindings clause]
+  (let [code `(~'fn [{:syms ~(vec clause-bindings)}]
                 ~clause)]
     (with-meta (eval code)
       {:clause clause
@@ -352,21 +352,19 @@ well as expression clauses."
                            clause))))}
     
     [(_ :guard list?)]
-    {:predicate (compile-expression-clause args
-                  (clause-bindings clause)
-                  clause)
+    {:predicate (compile-expression-clause (clause-bindings clause) clause)
      :op :predicate}
     
     [[destructuring (['q subquery-name & arguments] :seq :guard list?)]]
     ;; TODO there's no way this can work, destructuring is never used...yet the tests pass :-(
     {:op :subquery
+     :destructuring destructuring
      :subquery subquery-name
      :args (vec arguments)}
     
     [[destructuring (fn-expr :guard list?)]]
     {:op :function
-     :function (compile-expression-clause args
-                 (clause-bindings fn-expr)
+     :function (compile-expression-clause (clause-bindings fn-expr)
                  `(when-let [~destructuring ~fn-expr]
                     ~(let [bindings (if (symbol? destructuring)
                                       #{destructuring}
@@ -398,13 +396,13 @@ well as expression clauses."
 
 (defmethod plan :default
   [db {:keys [select args subs where] :as query}]
-  (assoc query
-    :planned true
-    :subs (into {} (for [[name subquery] subs]
-                     [name (plan db subquery)]))
-    :where (let [where (if (set? where) [where] where)]
-             (reduce (partial plan-clause db (:args query))
-               [] (reorder-expression-clauses where)))))
+  (-> (assoc query
+        :subs (into {} (for [[name subquery] subs]
+                         [name (plan db subquery)]))
+        :where (let [where (if (set? where) [where] where)]
+                 (reduce (partial plan-clause db (:args query))
+                   [] (reorder-expression-clauses where))))
+    (vary-meta assoc :planned true)))
 
 (defn- coerce-match-tuple
   "Given a match tuple, returns a new one with bound values coerced appropriately
@@ -449,6 +447,7 @@ well as expression clauses."
 
 (defn match
   [space previous-matches {:keys [index clause bindings] :as clause-plan}]
+  ;(println previous-matches)
   (let [previous-matches (if (empty? previous-matches) #{{}} previous-matches)]
     (->> previous-matches
       (map #(let [matches (match* space index (replace % clause) clause)]
@@ -460,18 +459,18 @@ well as expression clauses."
 (declare query)
 
 (defn- query*
-  [space q args]
+  [space q results]
   (reduce
     (fn [results clause-plan]
       (case (:op clause-plan)
-        :match (match space results (walk/prewalk-replace args clause-plan))
-        :predicate (set/select (partial (:predicate clause-plan) args) results)
+        :match (match space results clause-plan)
+        :predicate (set/select (:predicate clause-plan) results)
         :function (let [function (:function clause-plan)]
                     (->> results
-                      (map #(set/join #{%} (function args %)))
+                      (map #(set/join #{%} (function %)))
                       (apply set/union)))
         :disjunction (->> (:clauses clause-plan)
-                       (map #(query* space (assoc q :where %) args))
+                       (map #(query* space (assoc q :where %) results))
                        (apply set/union))
         :subquery (let [subquery (-> (:subs q)
                                    (get (:subquery clause-plan))
@@ -479,20 +478,23 @@ well as expression clauses."
                         ; TODO we're losing the higher-level argument bindings here?
                         ; that may be a good thing, in terms of minimizing confusion around
                         ; naming/shadowing of arguments
-                        args (map #(walk/prewalk-replace % (:args clause-plan)) results)]
-                    (->> (mapcat #(apply query space subquery %) args)
-                      (map #(zipmap (:select subquery) %))
+                        args (map (fn [m] #{(into {} (map (fn [src dst] [dst (m src)])
+                                                       (:args clause-plan) (:args subquery)))})
+                               results)]
+                    (->> (mapcat #(query* space subquery %) args)
+                      (map (apply juxt (:select subquery)))
+                      (map #(zipmap (:destructuring clause-plan) %))
                       set
                       (set/join results)))))
-    nil
+    results
     (:where q)))
 
 (defn q
-  [space {:keys [select planner planned args subs where] :as query} & arg-values]
-  (let [query (if planned query (plan space query))
+  [space {:keys [select planner args subs where] :as query} & arg-values]
+  (let [query (if (-> query meta :planned) query (plan space query))
         args (zipmap args arg-values)
-        matches (query* space query args)]
-    (->> (set/join matches #{args})
+        matches (query* space query #{args})]
+    (->> matches
       (map (apply juxt (:select query)))
       ;; TODO we can do this statically
       (remove (partial some nil?))
@@ -514,8 +516,3 @@ well as expression clauses."
                     (<= (count (set/difference b b2))
                       (count (set/difference b2 b))) {c2 #{c}}
                     :default {c #{c2}})})))
-
-(comment
-  (def g (clause-graph (map :clause p)))
-  (pp/pprint g)
-  (pp/pprint (g/dependency-list g)))

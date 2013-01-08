@@ -14,8 +14,8 @@
 
 (deftest predicate-expression-compilation
   (let [expr '(> 30 (inc ?x) ?y)
-        fn (#'s/compile-expression-clause '[$a $b] (#'s/clause-bindings expr) expr)]
-    (is (= {:code '(fn [{:syms [$a $b]} {:syms [?y ?x]}] (> 30 (inc ?x) ?y))
+        fn (#'s/compile-expression-clause (#'s/clause-bindings expr) expr)]
+    (is (= {:code '(fn [{:syms [?y ?x]}] (> 30 (inc ?x) ?y))
             :clause expr}
           (meta fn)))))
 
@@ -115,8 +115,37 @@
                                     :b 12)))
     ; fn args!
     (is (= #{["c"]} (q space '{:select [?v]
-                                     :args [$pred]
-                                     :where [($pred ?v)
+                                     :args [?pred]
+                                     :where [(?pred ?v)
                                              [_ :b ?v]]}
                       string?)))))
+
+(deftest subqueries
+  (let [space (-> (in-memory)
+                (write [{:head true :ref #ref #entity "y" :db/id "x"}
+                        {:x 1 :ref #ref #entity "z" :db/id "y"}
+                        {:x 2 :ref #ref #entity "a" :db/id "z"}
+                        {:x 3 :db/id "a"}]))]
+    (is (= #{[#entity "x" #entity "y"] [#entity "x" #entity "z"] [#entity "x" #entity "a"]}
+          (q space '{:select [?head ?c]
+                     :args [?head]
+                     :subs {:walk {:select [?c]
+                                   :args [?p]
+                                   :where #{[[?p :ref ?c]]
+                                            [[?p :ref ?ch]
+                                             [[?c] (q :walk ?ch)]]}}}
+                     :where [[[?c] (q :walk ?head)]]}
+            #entity "x")))
+    (is (= #{[#entity "a" 3] [#entity "y" 1] [#entity "z" 2]}
+          (q space
+            '{:select [?c ?x]
+              :args [?head]
+              :subs {:walk {:select [?c ?x]
+                            :args [?p]
+                  :where #{[[?p :ref ?c]
+                            [?c :x ?x]]
+                           [[?p :ref ?ch]
+                            [[?c ?x] (q :walk ?ch)]]}}}
+              :where [[[?c ?x] (q :walk ?head)]]}
+            #entity "x")))))
 
