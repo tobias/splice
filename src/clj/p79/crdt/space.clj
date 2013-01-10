@@ -10,7 +10,16 @@
             [clojure.pprint :as pp])
   (:refer-clojure :exclude (read)))
 
+(def ^:private rng (java.security.SecureRandom.))
+
 (defn uuid [] (str (java.util.UUID/randomUUID)))
+(defn squuid
+  "Returns a sequential UUID. Guaranteed to:
+
+(a) monotonically increase lexicographically
+(b) contain [time] (or the current time in millis) as the most significant bits"
+  ([] (squuid (System/currentTimeMillis)))
+  ([time] (str (java.util.UUID. time (.nextLong rng)))))
 
 (comment
 ;         P
@@ -226,8 +235,9 @@ a map of operation metadata.")
   (write
     ([this tuples] (write this nil tuples))
     ([this op-meta ts]
-      (let [tag (entity (uuid))
-            op-meta (merge {:time (now)} op-meta {:db/id tag})
+      (let [time (now)
+            tag (entity (squuid (.getTime time)))
+            op-meta (merge {:time time} op-meta {:db/id tag})
             tuples (->> (mapcat as-tuples ts)
                      (concat (as-tuples op-meta))
                      (prep-tuples (reference tag)))]
@@ -421,7 +431,7 @@ well as expression clauses."
 ; TODO eventually compile fns for each match-vector that use
 ; core.match for optimal filtering after index lookup
 
-(defn match*
+(defn- match*
   [space index-keys match-vector binding-vector]
   (let [index (index space index-keys)
         ;; TODO this should *warn*, not throw, and just do a full scan
@@ -445,9 +455,8 @@ well as expression clauses."
               {} slot-bindings))
       set)))
 
-(defn match
+(defn- match
   [space previous-matches {:keys [index clause bindings] :as clause-plan}]
-  ;(println previous-matches)
   (let [previous-matches (if (empty? previous-matches) #{{}} previous-matches)]
     (->> previous-matches
       (map #(let [matches (match* space index (replace % clause) clause)]
