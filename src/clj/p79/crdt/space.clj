@@ -177,50 +177,49 @@ a map of operation metadata.")
 (def ^:private index-bottom (IndexBottom.))
 (def ^:private index-top (IndexTop.))
 
-;; need [:aa _ _ _] to sort after [:a 5 #entity "foo" #ref #entity "bar"] 
-(def index-comparator
-  (reify java.util.Comparator
-    (compare [this k k2]
-      (or (->> (map #(cond
-                       (= index-bottom %) -1
-                       (= index-bottom %2) 1
-                       (= index-top %) 1
-                       (= index-top %2) -1
-                       :else (let [type-compare (compare (str (type %)) (str (type %2)))]
-                               (if (zero? type-compare)
-                                 (compare % %2)
-                                 type-compare)))
-                 k k2)
-            (remove #{0})
-            first)
-        0))))
+(defn- compare-values
+  [x x2]
+  (cond
+    (= index-bottom x) -1
+    (= index-bottom x2) 1
+    (= index-top x) 1
+    (= index-top x2) -1
+    :else (let [type-compare (compare (str (type x)) (str (type x2)))]
+            (if (zero? type-compare)
+              (compare x x2)
+              type-compare))))
 
-(def empty-index (sorted-map-by index-comparator))
+(defmacro ^:private index-comparator* [t t2 [k & tuple-keys]]
+  (if-not k
+    0
+    `(let [x# (compare-values (~k ~t) (~k ~t2))]
+       (if (zero? x#)
+         (index-comparator* ~t ~t2 ~tuple-keys)
+         x#))))
 
-(defn index*
-  "Returns a sorted-map of the distinct values of [keys] in the seq of
-[maps] mapped to a set of those maps with the corresponding values of [keys]."
-  ([maps keys] (index* empty-index maps keys))
-  ([index maps keys]
-    (when-not (sorted? index)
-      (throw (IllegalArgumentException. "Cannot build index on unsorted map")))
-    (let [values (apply juxt keys)
-          conj-set (fnil conj #{})]
-      (reduce
-        #(update-in % [(values %2)] conj-set %2)
-        index
-        maps))))
+(defmacro ^:private index-comparator [tuple-keys]
+  (let [t (gensym "t")
+        t2 (gensym "t2")]
+    `(with-meta
+       (reify java.util.Comparator
+         (compare [this# ~t ~t2]
+           (index-comparator* ~t ~t2 ~tuple-keys)))
+       {:index-keys '~tuple-keys})))
 
-(defn index-values
-  [index]
-  (apply concat (vals index)))
+;; TODO as long as each index is complete, we can just keep covering indexes as
+;; sorted sets (with comparators corresponding to the different sorts)
+(def ^:private index-types {[:e :a :v :tag] (index-comparator [:e :a :v :tag])
+                            [:a :e :v :tag] (index-comparator [:a :e :v :tag])
+                            [:a :v :e :tag] (index-comparator [:a :v :e :tag])
+                            [:tag :a :e :v] (index-comparator [:tag :a :e :v])
+                            [:v :a :e :tag] (index-comparator [:v :a :e :tag])})
 
-(def ^:private index-types #{[:e :a :v :tag] [:a :e :v :tag] [:a :v :e :tag] [:tag :a :e :v]
-                             [:v :a :e :tag]})
+(def ^:private empty-indexes (into {} (for [[index-keys comparator] index-types]
+                                        [index-keys (sorted-set-by comparator)])))
 
 (deftype MemSpace [indexes as-of metadata]
   IndexedSpace
-  (available-indexes [this] index-types)
+  (available-indexes [this] (-> index-types keys set))
   (index [this index-type] (indexes index-type))
   
   clojure.lang.IMeta
@@ -244,9 +243,9 @@ a map of operation metadata.")
         (MemSpace.
           (reduce
             (fn [indexes index-keys]
-              (update-in indexes [index-keys] (fnil index* empty-index) tuples index-keys))
+              (update-in indexes [index-keys] into tuples))
             (.-indexes this)
-            index-types)
+            (keys (.-indexes this)))
           (.-as-of this) (.-metadata this)))))
   
   #_
@@ -257,7 +256,7 @@ a map of operation metadata.")
 
 (defn in-memory
   []
-  (MemSpace. {} nil {}))
+  (MemSpace. empty-indexes nil {}))
 
 (defn- match-tuple
   [match-vector]
@@ -441,14 +440,18 @@ well as expression clauses."
         binding-tuple (coerce-match-tuple (match-tuple binding-vector))
         match-tuple (coerce-match-tuple (match-tuple match-vector))
         slot-bindings (filter (comp binding? val) binding-tuple)
-        bound-vector (apply juxt (map first (remove (comp variable? val) match-tuple)))
-        match-bounds (bound-vector match-tuple)
-        match-vector (mapv (partial get match-tuple) index-keys)]
+        sortable-match-tuple (fn [t wildcard]
+                               (reduce (fn [t [k v]]
+                                         (if-not (variable? v)
+                                           t
+                                           (assoc t k wildcard)))
+                                 t t))]
     (->> (subseq index
-           >= (mapv #(if (variable? %) index-bottom %) match-vector)
-           <= (mapv #(if (variable? %) index-top %) match-vector))
-      (mapcat val)
-      (filter #(= match-bounds (bound-vector %)))
+           >= (sortable-match-tuple match-tuple index-bottom)
+           <= (sortable-match-tuple match-tuple index-top))
+      (filter (partial every? (fn [[k v]]
+                                (let [v2 (k match-tuple)]
+                                  (or (variable? v2) (= v v2))))))
       (map #(reduce (fn [match [tuple-key binding]]
                       (let [x (tuple-key %)]
                         (assoc match binding (if (reference? x) @x x))))
