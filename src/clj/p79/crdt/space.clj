@@ -13,12 +13,12 @@
 (def ^:private rng (java.security.SecureRandom.))
 
 (defn uuid [] (str (java.util.UUID/randomUUID)))
-(defn squuid
+(defn time-uuid
   "Returns a sequential UUID. Guaranteed to:
 
 (a) monotonically increase lexicographically
 (b) contain [time] (or the current time in millis) as the most significant bits"
-  ([] (squuid (System/currentTimeMillis)))
+  ([] (time-uuid (System/currentTimeMillis)))
   ([time] (str (java.util.UUID. time (.nextLong rng)))))
 
 (comment
@@ -235,7 +235,7 @@ a map of operation metadata.")
     ([this tuples] (write this nil tuples))
     ([this op-meta ts]
       (let [time (now)
-            tag (entity (squuid (.getTime time)))
+            tag (entity (time-uuid (.getTime time)))
             op-meta (merge {:time time} op-meta {:db/id tag})
             tuples (->> (mapcat as-tuples ts)
                      (concat (as-tuples op-meta))
