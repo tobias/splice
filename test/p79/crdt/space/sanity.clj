@@ -136,16 +136,64 @@
                                              [[?c] (q :walk ?ch)]]}}}
                      :where [[[?c] (q :walk ?head)]]}
             #entity "x")))
+    
     (is (= #{[#entity "a" 3] [#entity "y" 1] [#entity "z" 2]}
           (q space
             '{:select [?c ?x]
               :args [?head]
               :subs {:walk {:select [?c ?x]
                             :args [?p]
-                  :where #{[[?p :ref ?c]
-                            [?c :x ?x]]
-                           [[?p :ref ?ch]
-                            [[?c ?x] (q :walk ?ch)]]}}}
+                            :where #{[[?p :ref ?c]
+                                      [?c :x ?x]]
+                                     [[?p :ref ?ch]
+                                      [[?c ?x] (q :walk ?ch)]]}}}
               :where [[[?c ?x] (q :walk ?head)]]}
+            #entity "x")
+          
+          ;; direct-recur
+          (q space
+            '{:select [?c ?x]
+              :args [?p]
+              :where #{[[?p :ref ?c]
+                        [?c :x ?x]]
+                       [[?p :ref ?ch]
+                        [[?c ?x] (recur ?ch)]]}}
             #entity "x")))))
+
+; <p><em class="title" id="name">x</em><span>y</span></p>
+(def html {:html/element :p
+           :html/rank 0.5M
+           :html/children #{{:html/element :em
+                             :html/rank 0.5M
+                             :html/children #{{:html/attr :class :value "title"}
+                                              {:html/attr :id :value "name"}
+                                              {:html/text "x"}}}
+                            {:html/element :span
+                             :html/rank 0.75M
+                             :html/children #{{:html/text "y"}}}}})
+
+(deftest html-subqueries
+  (let [m (s/assign-map-ids html)
+        space (write (in-memory) [m])]
+    (is (= #{[:em] [:span] [:p]}
+          (q space
+            '{:select [?el]
+              :args [?head]
+              :subs {:walk {:select [?el]
+                            :args [?head]
+                            :where #{[[?head :html/element ?el]]
+                                     [[?head :html/children ?ch]
+                                      [[?el] (q :walk ?ch)]]}}}
+              :where [[?e :html/element ?head]
+                      [[?el] (q :walk ?e)]]}
+            :p)
+          
+          ;; direct-recur
+          (q space
+            '{:select [?el]
+              :args [?head]
+              :where #{[[?head :html/element ?el]]
+                       [[?head :html/children ?ch]
+                        [[?el] (recur ?ch)]]}}
+            (s/entity (:db/id m)))))))
 

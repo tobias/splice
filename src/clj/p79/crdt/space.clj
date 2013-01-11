@@ -21,25 +21,6 @@
   ([] (time-uuid (System/currentTimeMillis)))
   ([time] (str (java.util.UUID. time (.nextLong rng)))))
 
-(comment
-;         P
-;     ___/|\___
-;  br/    |    \span
-;         | 
-;       strong
-
-[ts tag 1 :tag :p]
-[ts tag 1 :ref/html 2]
-[ts tag 1 :ref/html 3]
-[ts tag 1 :ref/html 4]
-[ts tag 2 :tag :br]
-[ts tag 2 :rank 0.0]
-[ts tag 3 :tag :span]
-[ts tag 3 :rank 1.0]
-[ts tag 4 :tag :strong]
-[ts tag 4 :rank 0.5]
-)
-
 (defmacro defroottype
   [type-name ctor-name type-tag value-name value-pred]
   (let [value-field (symbol (str ".-" value-name))
@@ -136,8 +117,17 @@ This fn should therefore always be used in preference to the Tuple. ctor."
             tag (:db/tag m)
             s (seq (dissoc m :db/id))]
         (if s
-          (for [[k v] s]
-            (->Tuple e k v tag))
+          (mapcat (fn [[k v]]
+                    (let [v (if (or (sequential? v) (set? v)) v #{v})]
+                      (if (coll? v)
+                        (let [maps (filter map? v)
+                              other (concat
+                                      (remove map? v)
+                                      (map (comp reference entity :db/id) maps))]
+                          (concat
+                            (mapcat as-tuples maps)
+                            (map (fn [v] (->Tuple e k v tag)) other))))))
+            s)
           (throw (IllegalArgumentException. "Empty Map cannot be tuple-ized."))))
       (throw (IllegalArgumentException. "Map cannot be tuple-ized, no :db/id")))))
 
@@ -365,10 +355,15 @@ well as expression clauses."
      :op :predicate}
     
     [[destructuring (['q subquery-name & arguments] :seq :guard list?)]]
-    ;; TODO there's no way this can work, destructuring is never used...yet the tests pass :-(
     {:op :subquery
      :destructuring destructuring
      :subquery subquery-name
+     :args (vec arguments)}
+    
+    [[destructuring (['recur & arguments] :seq :guard list?)]]
+    {:op :subquery
+     :destructuring destructuring
+     :subquery ::recur
      :args (vec arguments)}
     
     [[destructuring (fn-expr :guard list?)]]
@@ -460,13 +455,12 @@ well as expression clauses."
 
 (defn- match
   [space previous-matches {:keys [index clause bindings] :as clause-plan}]
-  (let [previous-matches (if (empty? previous-matches) #{{}} previous-matches)]
-    (->> previous-matches
-      (map #(let [matches (match* space index (replace % clause) clause)]
-              (if (seq matches)
-                (set/join previous-matches matches)
-                #{})))
-      (apply set/union))))
+  (->> (if (empty? previous-matches) #{{}} previous-matches)
+    (map #(let [matches (match* space index (replace % clause) clause)]
+            (if (seq matches)
+              (set/join previous-matches matches)
+              #{})))
+    (apply set/union)))
 
 (declare query)
 
@@ -482,11 +476,13 @@ well as expression clauses."
                       (map #(set/join #{%} (function %)))
                       (apply set/union)))
         :disjunction (->> (:clauses clause-plan)
-                       (map #(query* space (assoc q :where %) results))
+                       (map #(query* space (assoc q ::recur q :where %) results))
                        (apply set/union))
-        :subquery (let [subquery (-> (:subs q)
-                                   (get (:subquery clause-plan))
-                                   (update-in [:subs] #(merge (:subs q) %)))
+        :subquery (let [subquery (if (= ::recur (:subquery clause-plan))
+                                   (::recur q)
+                                   (-> (:subs q)
+                                     (get (:subquery clause-plan))
+                                     (update-in [:subs] #(merge (:subs q) %))))
                         ; TODO we're losing the higher-level argument bindings here?
                         ; that may be a good thing, in terms of minimizing confusion around
                         ; naming/shadowing of arguments
@@ -512,6 +508,18 @@ well as expression clauses."
       (remove (partial some nil?))
       set)))
 
+(defn assign-map-ids
+  [m]
+  (walk/postwalk
+    (fn [x]
+      (cond
+        (not (map? x)) x
+        (:db/id x) x
+        :else (assoc x :db/id (uuid))))
+    m))
+
+; this is probably outdated; something like this will be necessary to do sane
+; query planning
 (defn- clause-graph
   "Returns a c.c.graph representing the relationships between the given clauses."
   [clauses]
