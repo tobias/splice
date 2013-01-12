@@ -67,8 +67,8 @@
 ;; if the primary use case is referring to entities, then #entity "abcd" is
 ;; no worse than #ref #entity "abcd", right?  Even the generalized case of e.g.
 ;; #ref #s3 "https://..." doesn't provide much (any?) semantic benefit.
-(defroottype Ref reference "ref" e entity?)
-(defroottype Tag tag "tag" t reference?)
+;(defroottype Ref reference "ref" e entity?)
+(defroottype Tag tag "tag" t entity?)
 
 (defn tombstone?
   [x]
@@ -123,7 +123,7 @@ This fn should therefore always be used in preference to the Tuple. ctor."
                         (let [maps (filter map? v)
                               other (concat
                                       (remove map? v)
-                                      (map (comp reference entity :db/id) maps))]
+                                      (map (comp entity :db/id) maps))]
                           (concat
                             (mapcat as-tuples maps)
                             (map (fn [v] (->Tuple e k v tag)) other))))))
@@ -229,7 +229,7 @@ a map of operation metadata.")
             op-meta (merge {:time time} op-meta {:db/id tag})
             tuples (->> (mapcat as-tuples ts)
                      (concat (as-tuples op-meta))
-                     (prep-tuples (reference tag)))]
+                     (prep-tuples tag))]
         (MemSpace.
           (reduce
             (fn [indexes index-keys]
@@ -415,12 +415,10 @@ well as expression clauses."
   (-> t
     (update-in [:e] #(cond
                        (variable? %) %
-                       (reference? %) (entity @%)
                        :default (entity %)))
     (update-in [:tag] #(cond
                          (variable? %) %
-                         (entity? %) (reference %)
-                         :else (reference (entity %))))))
+                         :else (entity %)))))
 
 ; TODO eventually compile fns for each match-vector that use
 ; core.match for optimal filtering after index lookup
@@ -448,8 +446,7 @@ well as expression clauses."
                                 (let [v2 (k match-tuple)]
                                   (or (variable? v2) (= v v2))))))
       (map #(reduce (fn [match [tuple-key binding]]
-                      (let [x (tuple-key %)]
-                        (assoc match binding (if (reference? x) @x x))))
+                      (assoc match binding (tuple-key %)))
               {} slot-bindings))
       set)))
 
@@ -509,6 +506,7 @@ well as expression clauses."
       set)))
 
 (defn assign-map-ids
+  "Walks the provided collection, adding :db/id's to all maps that don't have one already."
   [m]
   (walk/postwalk
     (fn [x]

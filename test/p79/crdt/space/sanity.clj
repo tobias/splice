@@ -122,9 +122,9 @@
 
 (deftest subqueries
   (let [space (-> (in-memory)
-                (write [{:head true :ref #ref #entity "y" :db/id "x"}
-                        {:x 1 :ref #ref #entity "z" :db/id "y"}
-                        {:x 2 :ref #ref #entity "a" :db/id "z"}
+                (write [{:head true :ref #entity "y" :db/id "x"}
+                        {:x 1 :ref #entity "z" :db/id "y"}
+                        {:x 2 :ref #entity "a" :db/id "z"}
                         {:x 3 :db/id "a"}]))]
     (is (= #{[#entity "x" #entity "y"] [#entity "x" #entity "z"] [#entity "x" #entity "a"]}
           (q space '{:select [?head ?c]
