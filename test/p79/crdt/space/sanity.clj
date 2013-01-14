@@ -19,13 +19,50 @@
             :clause expr}
           (meta fn)))))
 
+(deftest composite-values
+  (let [space (-> (in-memory)
+                (write [{:a [4 5 6] :b #{1 2 3} :db/id "x"}])
+                (write [{:c #{#{1 2 3}} :d #{7 8 9} :db/id "y"}]))]
+    (are [result query] (= (set result) (set (q space query)))
+      [[1] [2] [3]] '{:select [?v]
+                      :where [[_ :b ?v]]}
+      
+      [[#{1 2 3}]] '{:select [?v]
+                     :where [[_ :c ?v]]}
+      
+      [[:b]] '{:select [?a]
+               :where [[_ ?a 3]]}
+      
+      ;; TODO vector and set values aren't working yet
+      
+      #_#_
+      [[:a]] '{:select [?a]
+               :where [[_ ?a [1 2 3]]]}
+      #_#_
+      [[:c]] '{:select [?a]
+               :where [[_ ?a #{#{1 2 3}}]]}
+      )))
+
+(deftest implicit-disjunctions
+  (let [space (-> (in-memory)
+                (write [{:b #{1 2 3} :db/id "x"}])
+                (write [{:a #{4 5} :d #{7 8 9} :db/id "y"}]))]
+    (are [result query] (= (set result) (set (q space query)))
+      [[:b] [:d]] '{:select [?a]
+                    :where [[_ ?a #{3 9}]]}
+      
+      [[1] [2] [3]] '{:select [?v]
+                      :where [["x" #{:a :b :t} ?v]]}
+      
+      [[#entity "y"]] '{:select [?e]
+                        :where [[?e #{:a :d} #{1 4}]]})))
+
 (deftest sanity
   (let [space (-> (in-memory)
                 (write [{:a 6 :b 12 :db/id "x"}])
                 (write {:some-meta :p} [{:b 6 :db/id "y"}])
                 (write {:some-meta true} [{:b "c" :db/id "y"}]))]
-    (are [result query] (= (set result)
-                          (set (q space query)))
+    (are [result query] (= (set result) (set (q space query)))
       [[#entity "x" 6]] '{:select [?e ?v]
                           :where [[?e :b 12]
                                   [?e :a ?v]]}

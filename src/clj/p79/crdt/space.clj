@@ -2,6 +2,7 @@
   (:require [p79.crdt :as crdt]
             [p79.crdt.map :as map]
             [cemerick.utc-dates :refer (now)]
+            [clojure.math.combinatorics :refer (cartesian-product)]
             [clojure.core.match :as match]
             [clojure.contrib.graph :as g]
             [clojure.set :as set]
@@ -118,15 +119,14 @@ This fn should therefore always be used in preference to the Tuple. ctor."
             s (seq (dissoc m :db/id))]
         (if s
           (mapcat (fn [[k v]]
-                    (let [v (if (or (sequential? v) (set? v)) v #{v})]
-                      (if (coll? v)
-                        (let [maps (filter map? v)
-                              other (concat
-                                      (remove map? v)
-                                      (map (comp entity :db/id) maps))]
-                          (concat
-                            (mapcat as-tuples maps)
-                            (map (fn [v] (->Tuple e k v tag)) other))))))
+                    (let [v (if (set? v) v #{v})]
+                      (let [maps (filter map? v)
+                            other (concat
+                                    (remove map? v)
+                                    (map (comp entity :db/id) maps))]
+                        (concat
+                          (mapcat as-tuples maps)
+                          (map (fn [v] (->Tuple e k v tag)) other)))))
             s)
           (throw (IllegalArgumentException. "Empty Map cannot be tuple-ized."))))
       (throw (IllegalArgumentException. "Map cannot be tuple-ized, no :db/id")))))
@@ -335,6 +335,13 @@ well as expression clauses."
 
 (declare plan-clause)
 
+(defn- expand-disjunctive-clause
+  [clause]
+  (->> (map #(if (set? %) % #{%}) clause)
+    (apply cartesian-product)
+    (map (comp vector vec))
+    set))
+
 (defn- plan-clause*
   [db args bound-clause clause]
   (match/match [clause]
@@ -375,10 +382,13 @@ well as expression clauses."
                                       (clause-bindings destructuring))]
                        #{(zipmap (map #(list 'quote %) bindings) bindings)})))}
     
-    [([& _] :guard (partial every? (complement coll?)))]
-    {:bound-clause bound-clause
-     :index (pick-index (available-indexes db) bound-clause)
-     :op :match}
+    [[& _]]
+    (let [disjunctions-expanded (expand-disjunctive-clause clause)]
+      (if (< 1 (count disjunctions-expanded))
+        (plan-clause* db args bound-clause disjunctions-expanded)
+        {:bound-clause bound-clause
+         :index (pick-index (available-indexes db) bound-clause)
+         :op :match}))
     
     :else (throw (IllegalArgumentException. (str "Invalid clause: " clause)))))
 
