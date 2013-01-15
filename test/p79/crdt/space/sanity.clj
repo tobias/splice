@@ -234,3 +234,27 @@
                         [[?el] (recur ?ch)]]}}
             (s/entity (:db/id m)))))))
 
+(deftest deletes
+  (let [s (write (in-memory) [{:a #{"y" :x 1 2} :b #{2 4} :db/id "x"}])]
+    (is (= #{[1] [2]} (q s '{:select [?v] :where [[_ :a ?v] (number? ?v)]})))
+    (let [attr-writes (q s '{:select [?a ?t] :where [[_ ?a 2 ?t]]})
+          remove-write (s/time-uuid)
+          remove-tuples (map (fn [[attr write]] ["x" attr 2 remove-write write]) attr-writes)
+          ;_ (println remove-tuples)
+          s (write s remove-tuples)]
+      
+      ;; TODO it would be great to be able to write this query and have it work
+      ;; need to eventually figure out how to (automatically?) selectively disable
+      ;; the elimination of tuple matches based on removal tuples
+      #_
+      (pp/pprint [remove-write
+                  (-> attr-writes first second)
+                  (q s `{:select [?e ?a ?v ?r] :where [[?e ?a ?v ~remove-write ?r]]})])
+      #_#_
+      (def i (s/index s [:e :a :v :write :remove]))
+      (def s s)
+      ;(pp/pprint i)
+      (is (= #{[1]} (q s '{:select [?v] :where [[_ :a ?v] (number? ?v)]})))
+      (is (= #{[4]} (q s '{:select [?v] :where [[_ :b ?v] (number? ?v)]})))
+      (is (= #{} (q s '{:select [?a] :where [[_ ?a 2]]}))))))
+

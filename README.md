@@ -177,7 +177,7 @@ either a problem, or a premature optimization for a time where there will be >
   * auditing info
   * etc. etc etc
 
-Tuples: `[e a v timestamp tag]`
+Tuples: `[e a v e']`
 
 ```
 (if e
@@ -187,26 +187,28 @@ Tuples: `[e a v timestamp tag]`
   (do (assert v) :operation-metadata))  
 ```
 
-Operation meta: `[nil a v timestamp tag]`
+Operation meta: `[e' a v timestamp e']`
+
+Tuple removal/retraction: `[e a v e'' e']`
 
 Example addition, with meta, and removal, with meta:
 
 ```
 ["eUUID" :tag :p "tUUID1"]
-[nil :user "cemerick" "tUUID1"]
-[nil :source "interactive" "tUUID1"]
-[nil :app "wiki app" "tUUID1"]
-[nil :time 1354222006831 "tUUID1"]
+["tUUID1" :user "cemerick" "tUUID1"]
+["tUUID1" :source "interactive" "tUUID1"]
+["tUUID1" :app "wiki app" "tUUID1"]
+["tUUID1" :time 1354222006831 "tUUID1"]
 ;; this is the 'remove' operation/tuple, naming the value and the write that produced it
 ;; this gives us Observed-Remove semantics for value removal
-["eUUID" :tag #tombstone ["tUUID1" :p] "tUUID2"]
-[nil :user "cemerick" "tUUID2"]
-[nil :source "auto-reformatter" "tUUID2"]
-[nil :app "wiki app" "tUUID2"]
-[nil :time 135422200998 "tUUID2"]
+["eUUID" :tag :p "tUUID2" "tUUID1"]
+["tUUID2" :user "cemerick" "tUUID2"]
+["tUUID2" :source "auto-reformatter" "tUUID2"]
+["tUUID2" :app "wiki app" "tUUID2"]
+["tUUID2" :time 135422200998 "tUUID2"]
 ```
 
-The #dead pair literal containing the `[tag value]` of the value to be removed
+The #tombstone pair literal containing the `[tag value]` of the value to be removed
 is what indicates a remove.
 
 Operation metadata can never be "deleted" (paired with tombstones), so it

@@ -40,7 +40,11 @@
          (hashCode [~arg] (inc (hash (~value-field ~type-arg))))
          (equals [~arg ~arg2]
            (and (instance? ~type-name ~arg2)
-             (= (~value-field ~type-arg) (~value-field ~type-arg2)))))
+             (= (~value-field ~type-arg) (~value-field ~type-arg2))))
+         ;; this here only for the benefit of Tombstone
+         clojure.lang.ILookup
+         (valAt [this# k#] (get ~value-name k#))
+         (valAt [this# k# default#] (get ~value-name k# default#)))
        (defmethod print-method ~type-name [~type-arg ^java.io.Writer w#]
          (.write w# ~type-tag)
          (print-method (~value-field ~type-arg) w#))
@@ -69,42 +73,37 @@
 ;; no worse than #ref #entity "abcd", right?  Even the generalized case of e.g.
 ;; #ref #s3 "https://..." doesn't provide much (any?) semantic benefit.
 ;(defroottype Ref reference "ref" e entity?)
-(defroottype Tag tag "tag" t entity?)
-
-(defn tombstone?
-  [x]
-  (and (vector? x) (== 2 (count x))
-    (instance? Tag (first x))))
-
-(defroottype Tombstone tombstone "tombstone" tag-value tombstone?)
+;(defroottype Tag tag "tag" t entity?)
 
 ;; TODO don't quite like the e/a/v naming here
 ;; s/p/o is used in RDF, but might be too much of a tie to semweb
 ;; [element datum state]? :-P
 
-(defn metadata? [tuple] (not (:e tuple)))
+(defn metadata? [tuple] (= (:e tuple) (:write tuple)))
 
 (defprotocol AsTuples
   (as-tuples [x]))
 
-(defrecord Tuple [e a v tag]
+(defrecord Tuple [e a v write remove]
   AsTuples
   (as-tuples [this] [this]))
 
-(defn ->Tuple
+(defn tuple? [x] (instance? Tuple x))
+
+(defn coerce-tuple
   "Positional factory function for class p79.crdt.space.Tuple
-that coerces any shortcut tag and entity values to Tag and Entiy instances.
+that coerces any shortcut entity values to Entity instances.
 This fn should therefore always be used in preference to the Tuple. ctor."
-  [e a v op-tag]
-  (Tuple. (entity e) a v (tag op-tag)))
+  [e a v write remove]
+  (Tuple. (entity e) a v (entity write) (entity remove)))
 
 (extend-protocol AsTuples
   nil
   (as-tuples [x] [])
   java.util.List
   (as-tuples [ls]
-    (if (== 4 (count ls))
-      [(apply ->Tuple ls)]
+    (if (== 5 (count ls))
+      [(apply coerce-tuple ls)]
       (throw (IllegalArgumentException.
                (str "Vector/list cannot be tuple-ized, bad size: " (count ls))))))
   java.util.Map
@@ -126,7 +125,7 @@ This fn should therefore always be used in preference to the Tuple. ctor."
                                     (map (comp entity :db/id) maps))]
                         (concat
                           (mapcat as-tuples maps)
-                          (map (fn [v] (->Tuple e k v tag)) other)))))
+                          (map (fn [v] (coerce-tuple e k v tag nil)) other)))))
             s)
           (throw (IllegalArgumentException. "Empty Map cannot be tuple-ized."))))
       (throw (IllegalArgumentException. "Map cannot be tuple-ized, no :db/id")))))
@@ -134,7 +133,7 @@ This fn should therefore always be used in preference to the Tuple. ctor."
 (defn- prep-tuples
   [op-tag tuples]
   (for [t tuples]
-    (if (:tag t) t (assoc t :tag op-tag))))
+    (if (:write t) t (assoc t :write op-tag))))
 
 (defprotocol Space
   (read [this]
@@ -142,8 +141,7 @@ This fn should therefore always be used in preference to the Tuple. ctor."
   (write [this tuples] [this op-meta tuples]
      "Writes the given tuples to this space, optionally along with tuples derived from
 a map of operation metadata.")
-  (q [this query]
-     "Queries this space, returning a seq of results per the query's specification")
+  
   ;; don't expose until we know how to efficiently return indexes
   ;; that incorporate the ambient time filter
   ;; (can it be done, given that we need to keep existing index entries
@@ -154,7 +152,9 @@ a map of operation metadata.")
 
 (defprotocol IndexedSpace
   (available-indexes [this])
-  (index [this index-type]))
+  (index [this index-type])
+  (q* [this query args]
+     "Queries this space, returning a seq of results per the query's specification"))
 
 ;; TODO Q: why does datomic have the indices that it has? Wouldn't one index
 ;; per "column" (time, tag, e, a, v) take care of all query possibilities?
@@ -198,20 +198,16 @@ a map of operation metadata.")
 
 ;; TODO as long as each index is complete, we can just keep covering indexes as
 ;; sorted sets (with comparators corresponding to the different sorts)
-(def ^:private index-types {[:e :a :v :tag] (index-comparator [:e :a :v :tag])
-                            [:a :e :v :tag] (index-comparator [:a :e :v :tag])
-                            [:a :v :e :tag] (index-comparator [:a :v :e :tag])
-                            [:tag :a :e :v] (index-comparator [:tag :a :e :v])
-                            [:v :a :e :tag] (index-comparator [:v :a :e :tag])})
+(def ^:private index-types {[:e :a :v :write :remove] (index-comparator [:e :a :v :write :remove])
+                            [:a :e :v :write :remove] (index-comparator [:a :e :v :write :remove])
+                            [:a :v :e :write :remove] (index-comparator [:a :v :e :write :remove])
+                            [:write :a :e :v :remove] (index-comparator [:write :a :e :v :remove])
+                            [:v :a :e :write :remove] (index-comparator [:v :a :e :write :remove])})
 
 (def ^:private empty-indexes (into {} (for [[index-keys comparator] index-types]
                                         [index-keys (sorted-set-by comparator)])))
 
 (deftype MemSpace [indexes as-of metadata]
-  IndexedSpace
-  (available-indexes [this] (-> index-types keys set))
-  (index [this index-type] (indexes index-type))
-  
   clojure.lang.IMeta
   (meta [this] metadata)
   clojure.lang.IObj
@@ -250,9 +246,8 @@ a map of operation metadata.")
 
 (defn- match-tuple
   [match-vector]
-  (let [[e a v tag] (->> (repeat (- 4 (count match-vector)) '_)
-                      (into match-vector))]
-    (Tuple. e a v tag)))
+  (apply ->Tuple (->> (repeat (- 5 (count match-vector)) '_)
+                   (into match-vector))))
 
 (defn- query-reorder-clauses
   [clauses]
@@ -426,9 +421,9 @@ well as expression clauses."
     (update-in [:e] #(cond
                        (variable? %) %
                        :default (entity %)))
-    (update-in [:tag] #(cond
-                         (variable? %) %
-                         :else (entity %)))))
+    (update-in [:write] #(cond
+                           (variable? %) %
+                           :else (entity %)))))
 
 ; TODO eventually compile fns for each match-vector that use
 ; core.match for optimal filtering after index lookup
@@ -455,6 +450,14 @@ well as expression clauses."
       (filter (partial every? (fn [[k v]]
                                 (let [v2 (k match-tuple)]
                                   (or (variable? v2) (= v v2))))))
+      ;; TODO need to be able to disable this filtering for when we want to 
+      ;; match / join with :remove values
+      (reduce
+        (fn [s t]
+          (if-let [r (:remove t)]
+            (disj s (assoc t :write r :remove nil))
+            (conj s t)))
+        #{})
       (map #(reduce (fn [match [tuple-key binding]]
                       (assoc match binding (tuple-key %)))
               {} slot-bindings))
@@ -504,16 +507,23 @@ well as expression clauses."
     results
     (:where q)))
 
+(extend-type MemSpace
+  IndexedSpace
+  (available-indexes [this] (-> index-types keys set))
+  (index [this index-type] ((.-indexes this) index-type))
+  (q* [space {:keys [select planner args subs where] :as query} arg-values]
+    (let [query (if (-> query meta :planned) query (plan space query))
+          args (zipmap args arg-values)
+          matches (query* space query #{args})]
+      (->> matches
+        (map (apply juxt (:select query)))
+        ;; TODO we can do this statically
+        (remove (partial some nil?))
+        set))))
+
 (defn q
   [space {:keys [select planner args subs where] :as query} & arg-values]
-  (let [query (if (-> query meta :planned) query (plan space query))
-        args (zipmap args arg-values)
-        matches (query* space query #{args})]
-    (->> matches
-      (map (apply juxt (:select query)))
-      ;; TODO we can do this statically
-      (remove (partial some nil?))
-      set)))
+  (q* space query arg-values))
 
 (defn assign-map-ids
   "Walks the provided collection, adding :db/id's to all maps that don't have one already."
