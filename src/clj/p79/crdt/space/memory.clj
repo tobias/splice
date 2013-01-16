@@ -1,6 +1,7 @@
 (ns p79.crdt.space.memory
-  (:use p79.crdt.space)
-  (:require [cemerick.utc-dates :refer (now)]
+  (:require [p79.crdt.space :as s :refer (Space IndexedSpace ->Tuple available-indexes
+                                           entity index)]
+            [cemerick.utc-dates :refer (now)]
             [clojure.math.combinatorics :refer (cartesian-product)]
             [clojure.core.match :as match]
             [clojure.set :as set]
@@ -11,10 +12,10 @@
 (defn- compare-values
   [x x2]
   (cond
-    (= index-bottom x) -1
-    (= index-bottom x2) 1
-    (= index-top x) 1
-    (= index-top x2) -1
+    (= s/index-bottom x) -1
+    (= s/index-bottom x2) 1
+    (= s/index-top x) 1
+    (= s/index-top x2) -1
     :else (let [type-compare (compare (str (type x)) (str (type x2)))]
             (if (zero? type-compare)
               (compare x x2)
@@ -37,7 +38,14 @@
            (index-comparator* ~t ~t2 ~tuple-keys)))
        {:index-keys '~tuple-keys})))
 
-;; TODO as long as each index is complete, we can just keep covering indexes as
+;; TODO Q: why does datomic have the indices that it has? Wouldn't one index
+;; per "column" (time, tag, e, a, v) take care of all query possibilities?
+;; (such an arrangement wouldn't yield covering indexes, for one)
+;; (We probably never want to index on v, at least to start.  I don't want to 
+;; think about 'schemas' yet...and, actually, indexing shouldn't be part of
+;; the 'schema' anyway...
+
+;; as long as each index is complete, we can just keep covering indexes as
 ;; sorted sets (with comparators corresponding to the different sorts)
 (def ^:private index-types {[:e :a :v :write :remove] (index-comparator [:e :a :v :write :remove])
                             [:a :e :v :write :remove] (index-comparator [:a :e :v :write :remove])
@@ -58,23 +66,14 @@
   Space
   (read [this]
     )
-  (write
-    ([this tuples] (write this nil tuples))
-    ([this op-meta ts]
-      (let [time (now)
-            tag (entity (time-uuid (.getTime time)))
-            op-meta (merge {:time time} op-meta {:db/id tag})
-            tuples (->> (mapcat as-tuples ts)
-                     (concat (as-tuples op-meta))
-                     (prep-tuples tag))]
-        (MemSpace.
-          (reduce
-            (fn [indexes index-keys]
-              (update-in indexes [index-keys] into tuples))
-            (.-indexes this)
-            (keys (.-indexes this)))
-          (.-as-of this) (.-metadata this)))))
-  
+  (write* [this tuples]
+    (MemSpace.
+      (reduce
+        (fn [indexes index-keys]
+          (update-in indexes [index-keys] into tuples))
+        (.-indexes this)
+        (keys (.-indexes this)))
+      (.-as-of this) (.-metadata this)))
   #_
   (as-of
     ([this] as-of)
@@ -222,9 +221,19 @@ well as expression clauses."
     (let [disjunctions-expanded (expand-disjunctive-clause clause)]
       (if (< 1 (count disjunctions-expanded))
         (plan-clause* db args bound-clause disjunctions-expanded)
-        {:bound-clause bound-clause
-         :index (pick-index (available-indexes db) bound-clause)
-         :op :match}))
+        (match/match [clause]
+          
+          [[_ _ _ _ ':as whole-tuple-binding]]
+          (let [bound-clause (subvec bound-clause 0 4)]
+            {:bound-clause bound-clause
+             :index (pick-index (available-indexes db) bound-clause)
+             :op :match
+             :clause (subvec clause 0 4)
+             :whole-tuple-binding whole-tuple-binding})
+          
+          :else {:bound-clause bound-clause
+                 :index (pick-index (available-indexes db) bound-clause)
+                 :op :match})))
     
     :else (throw (IllegalArgumentException. (str "Invalid clause: " clause)))))
 
@@ -270,7 +279,7 @@ well as expression clauses."
 ; core.match for optimal filtering after index lookup
 
 (defn- match*
-  [space index-keys match-vector binding-vector]
+  [space index-keys match-vector binding-vector whole-tuple-binding]
   (let [index (index space index-keys)
         ;; TODO this should *warn*, not throw, and just do a full scan
         _ (when (nil? index)
@@ -286,8 +295,8 @@ well as expression clauses."
                                            (assoc t k wildcard)))
                                  t t))]
     (->> (subseq index
-           >= (sortable-match-tuple match-tuple index-bottom)
-           <= (sortable-match-tuple match-tuple index-top))
+           >= (sortable-match-tuple match-tuple s/index-bottom)
+           <= (sortable-match-tuple match-tuple s/index-top))
       (filter (partial every? (fn [[k v]]
                                 (let [v2 (k match-tuple)]
                                   (or (variable? v2) (= v v2))))))
@@ -301,13 +310,16 @@ well as expression clauses."
         #{})
       (map #(reduce (fn [match [tuple-key binding]]
                       (assoc match binding (tuple-key %)))
-              {} slot-bindings))
+              (if whole-tuple-binding
+                {whole-tuple-binding %}
+                {})
+              slot-bindings))
       set)))
 
 (defn- match
-  [space previous-matches {:keys [index clause bindings] :as clause-plan}]
+  [space previous-matches {:keys [index clause bindings whole-tuple-binding] :as clause-plan}]
   (->> (if (empty? previous-matches) #{{}} previous-matches)
-    (map #(let [matches (match* space index (replace % clause) clause)]
+    (map #(let [matches (match* space index (replace % clause) clause whole-tuple-binding)]
             (if (seq matches)
               (set/join previous-matches matches)
               #{})))

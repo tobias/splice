@@ -21,10 +21,9 @@
           (meta fn)))))
 
 (deftest basic-queries
-  (let [space (-> (in-memory)
-                (write [{:a 6 :b 12 :db/id "x"}])
-                (write {:some-meta :p} [{:b 6 :db/id "y"}])
-                (write {:some-meta true} [{:b "c" :db/id "y"}]))]
+  (let [s1 (write (in-memory) [{:a 6 :b 12 :db/id "x"}])
+        s2 (write s1 {:some-meta :p} [{:b 6 :db/id "y"}])
+        space (write s2 {:some-meta true} [{:b "c" :db/id "y"}])]
     (are [result query] (= (set result) (set (q space query)))
       [[#entity "x" 6]] '{:select [?e ?v]
                           :where [[?e :b 12]
@@ -99,7 +98,25 @@
       [[6 0] [12 2]] '{:select [?v ?k]
                        :where [[_ :b ?v]
                                (number? ?v)
-                               [[_ _ ?k] (range (/ ?v 3) -1 -1)]]})
+                               [[_ _ ?k] (range (/ ?v 3) -1 -1)]]}
+      
+      ; whole-tuple selection
+      [[(s/coerce-tuple "y" :b "c" (-> space meta ::s/writes first) nil)]
+       [(s/coerce-tuple "y" :b 6 (-> s2 meta ::s/writes first) nil)]]
+      '{:select [?t]
+        :where [["y" _ _ _ :as ?t]]}
+      [[6 (s/coerce-tuple "y" :b 6 (-> s2 meta ::s/writes first) nil)]]
+      '{:select [?v ?t]
+        :where [["y" _ ?v _ :as ?t]
+                (-> ?t :v number?)]}
+      
+      ;; TODO this *should* work, but is bugged
+      #_#_
+      [[#entity "x" 6 (s/coerce-tuple "y" :b 6 (-> s2 meta ::s/writes first) nil)]]
+      '{:select [?e ?v ?t]
+        :where [["y" _ ?v _ :as ?t]
+                (-> ?t :v number?)
+                [?e :b ?v]]})
     
     ; entity-reference lookup/coercion / timestamp checks
     (is (neg? (apply compare (first (q space '{:select [?xtime ?ytime]

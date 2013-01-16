@@ -1,6 +1,8 @@
 (ns p79.crdt.space
   (:require [p79.crdt :as crdt]
             [p79.crdt.map :as map]
+            [cemerick.utc-dates :refer (now)]
+            [clojure.set :as set]
             [clojure.walk :as walk]
             [clojure.pprint :as pp])
   (:refer-clojure :exclude (read)))
@@ -132,9 +134,7 @@ This fn should therefore always be used in preference to the Tuple. ctor."
 (defprotocol Space
   (read [this]
      "Returns a lazy seq of the tuples in this space.")
-  (write [this tuples] [this op-meta tuples]
-     "Writes the given tuples to this space, optionally along with tuples derived from
-a map of operation metadata.")
+  (write* [this tuples] "Writes the given tuples to this space.")
   
   ;; don't expose until we know how to efficiently return indexes
   ;; that incorporate the ambient time filter
@@ -143,6 +143,34 @@ a map of operation metadata.")
   #_
   (as-of [this] [this time]
          "Returns a new space restricted to tuples written prior to [time]."))
+
+; TODO how to control policy around which writes need to be replicated?
+; probably going to require query on the destination in order to determine workset
+(defn update-write-meta
+  [space written-tuples]
+  (let [last-replicated-write (-> space meta ::replication :lwr)
+        writes (set (map :write written-tuples))
+        out-of-order-writes (when last-replicated-write
+                              (set/union
+                                (set/select #(neg? (compare % last-replicated-write)))
+                                (or (-> space meta ::replication :ooow) #{})))]
+    (vary-meta space merge
+      {::writes writes
+       ::replication {:lwr last-replicated-write
+                      :ooow out-of-order-writes}})))
+
+(defn write
+  "Writes the given data to this space optionally along with tuples derived from
+a map of operation metadata, first converting it to tuples with `as-tuples`."
+  ([this tuples] (write this nil tuples))
+  ([this op-meta ts]
+    (let [time (now)
+          tag (entity (time-uuid (.getTime time)))
+          op-meta (merge {:time time} op-meta {:db/id tag})
+          tuples (->> (mapcat as-tuples ts)
+                   (concat (as-tuples op-meta))
+                   (prep-tuples tag))]
+      (update-write-meta (write* this tuples) tuples))))
 
 (defprotocol IndexedSpace
   (available-indexes [this])
@@ -153,12 +181,6 @@ a map of operation metadata.")
 (defn q
   [space {:keys [select planner args subs where] :as query} & arg-values]
   (q* space query arg-values))
-
-;; TODO Q: why does datomic have the indices that it has? Wouldn't one index
-;; per "column" (time, tag, e, a, v) take care of all query possibilities?
-;; (We probably never want to index on v, at least to start.  I don't want to 
-;; think about 'schemas' yet...and, actually, indexing shouldn't be part of
-;; the 'schema' anyway...
 
 (deftype IndexBottom [])
 (deftype IndexTop [])
