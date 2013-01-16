@@ -1,11 +1,12 @@
 (ns p79.crdt.space.sanity
-  (:require [p79.crdt.space :as s :refer (in-memory write q)]
+  (:require [p79.crdt.space :as s :refer (write q)]
+            [p79.crdt.space.memory :as mem :refer (in-memory)]
     [clojure.pprint :as pp])
   (:use clojure.test))
 
 (deftest default-planner
   (is (= '[[?e :g ?v] (pos? ?v) [?e :a ?a] (pos? ?a) [?e :b 5 "tag"]]
-        (#'s/reorder-expression-clauses
+        (#'mem/reorder-expression-clauses
           '[(pos? ?v)
             [?e :g ?v]
             (pos? ?a)
@@ -14,7 +15,7 @@
 
 (deftest predicate-expression-compilation
   (let [expr '(> 30 (inc ?x) ?y)
-        fn (#'s/compile-expression-clause (#'s/clause-bindings expr) expr)]
+        fn (#'mem/compile-expression-clause (#'mem/clause-bindings expr) expr)]
     (is (= {:code '(fn [{:syms [?y ?x]}] (> 30 (inc ?x) ?y))
             :clause expr}
           (meta fn)))))
