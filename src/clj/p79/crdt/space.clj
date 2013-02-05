@@ -5,7 +5,11 @@
             [clojure.set :as set]
             [clojure.walk :as walk]
             [clojure.pprint :as pp])
-  (:refer-clojure :exclude (read)))
+  (:refer-clojure :exclude (replicate)))
+
+(def unreplicated ::unreplicated)
+(def write-time ::write-time)
+(derive write-time unreplicated)
 
 (def ^:private rng (java.security.SecureRandom.))
 
@@ -89,9 +93,11 @@
 (defn coerce-tuple
   "Positional factory function for class p79.crdt.space.Tuple
 that coerces any shortcut entity values to Entity instances.
-This fn should therefore always be used in preference to the Tuple. ctor."
-  [e a v write remove]
-  (Tuple. (entity e) a v (entity write) (entity remove)))
+This fn should therefore always be used in preference to the Tuple. ctor.
+The 4-arg arity defaults [remove] to false."
+  ([e a v write] (coerce-tuple e a v write false))
+  ([e a v write remove]
+    (Tuple. (entity e) a v (entity write) (entity remove))))
 
 (extend-protocol AsTuples
   nil
@@ -110,7 +116,6 @@ This fn should therefore always be used in preference to the Tuple. ctor."
     ;; Tuple over one to java.util.Map
     (if-let [[_ e] (find m :db/id)]
       (let [time (:db/time m)
-            tag (:db/tag m)
             s (seq (dissoc m :db/id))]
         (if s
           (mapcat (fn [[k v]]
@@ -121,20 +126,13 @@ This fn should therefore always be used in preference to the Tuple. ctor."
                                     (map (comp entity :db/id) maps))]
                         (concat
                           (mapcat as-tuples maps)
-                          (map (fn [v] (coerce-tuple e k v tag nil)) other)))))
+                          (map (fn [v] (coerce-tuple e k v nil nil)) other)))))
             s)
           (throw (IllegalArgumentException. "Empty Map cannot be tuple-ized."))))
       (throw (IllegalArgumentException. "Map cannot be tuple-ized, no :db/id")))))
 
-(defn prep-tuples
-  [op-tag tuples]
-  (for [t tuples]
-    (if (:write t) t (assoc t :write op-tag))))
-
 (defprotocol Space
-  (read [this]
-     "Returns a lazy seq of the tuples in this space.")
-  (write* [this tuples] "Writes the given tuples to this space.")
+  (write* [this write-tag tuples] "Writes the given tuples to this space.")
   
   ;; don't expose until we know how to efficiently return indexes
   ;; that incorporate the ambient time filter
@@ -146,7 +144,7 @@ This fn should therefore always be used in preference to the Tuple. ctor."
 
 ; TODO how to control policy around which writes need to be replicated?
 ; probably going to require query on the destination in order to determine workset
-(defn update-write-meta
+#_(defn update-write-meta
   [space written-tuples]
   (let [last-replicated-write (-> space meta ::replication :lwr)
         writes (set (map :write written-tuples))
@@ -159,18 +157,32 @@ This fn should therefore always be used in preference to the Tuple. ctor."
        ::replication {:lwr last-replicated-write
                       :ooow out-of-order-writes}})))
 
+(defn update-write-meta
+  [space write-tag]
+  (vary-meta space assoc ::last-write write-tag))
+
+(defn- add-write-tag
+  [write tuples]
+  (for [t tuples]
+    (if (:write t) t (assoc t :write write))))
+
 (defn write
   "Writes the given data to this space optionally along with tuples derived from
 a map of operation metadata, first converting it to tuples with `as-tuples`."
-  ([this tuples] (write this nil tuples))
-  ([this op-meta ts]
+  ([this data] (write this nil data))
+  ([this op-meta data]
     (let [time (now)
-          tag (entity (time-uuid (.getTime time)))
-          op-meta (merge {:time time} op-meta {:db/id tag})
-          tuples (->> (mapcat as-tuples ts)
+          tuples (mapcat as-tuples data)
+          _ (assert (not-any? :write tuples) "Data provided to ")
+          write (entity (time-uuid (.getTime time)))
+          op-meta (merge {:time time} op-meta {:db/id write})
+          tuples (->> tuples
                    (concat (as-tuples op-meta))
-                   (prep-tuples tag))]
-      (update-write-meta (write* this tuples) tuples))))
+                   (add-write-tag write))]
+      (println this)
+      (-> this
+        (write* write tuples)
+        (update-write-meta write)))))
 
 (defprotocol IndexedSpace
   (available-indexes [this])
@@ -181,6 +193,44 @@ a map of operation metadata, first converting it to tuples with `as-tuples`."
 (defn q
   [space {:keys [select planner args subs where] :as query} & arg-values]
   (q* space query arg-values))
+
+(defn- maybe-notify-write
+  [config change-fn watch-key space-ref old-space space]
+  (change-fn space))
+
+; TODO this is going to need to get asynchronous, fast
+(defn watch-changes
+  "Registers [fn] to be notified of writes to the space held in [space-ref]
+(an atom, agent, ref, var, etc) that match the query specified in [config].
+Returns the watch key used.
+
+Each write is sent as a sequence of tuples."
+  ([space-ref fn] (watch-changes space-ref nil fn))
+  ([space-ref
+    ; aping couchdb _changes args...
+    {:keys [watch-key since limit heartbeat timeout #_filter]
+     :or {}
+     :as config}
+    change-fn]
+    (let [config (update-in config [:watch-key] #(or % (keyword (gensym "watch-changes"))))]
+      (remove-watch space-ref (:watch-key config))
+      (add-watch space-ref (:watch-key config)
+        (partial maybe-notify-write config change-fn))
+      (:watch-key config))))
+
+(def replication-change-fn (comp {clojure.lang.Atom swap!
+                                  clojure.lang.Agent send} class))
+
+(defn replicate-last-write
+  [target-space-reference source-space]
+  (when-let [write (-> source-space meta ::last-write)]
+    (let [replicatable-tuples (q source-space '{:select [?t]
+                                                :args [?write]
+                                                :where [[_ ?a _ ?write :as ?t]
+                                                        (not (isa? ?a p79.crdt.space/unreplicated))]}
+                                write)]
+      ((replication-change-fn target-space-reference)
+        target-space-reference write* write (apply concat replicatable-tuples)))))
 
 (deftype IndexBottom [])
 (deftype IndexTop [])

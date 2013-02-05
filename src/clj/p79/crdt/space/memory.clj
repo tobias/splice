@@ -60,21 +60,20 @@
   clojure.lang.IMeta
   (meta [this] metadata)
   clojure.lang.IObj
-  (withMeta [this meta] (MemSpace. indexes as-of meta)))
-
-(extend-type MemSpace
+  (withMeta [this meta] (MemSpace. indexes as-of meta))
   Space
-  (read [this]
-    )
-  (write* [this tuples]
-    (MemSpace.
-      (reduce
-        (fn [indexes index-keys]
-          (update-in indexes [index-keys] into tuples))
-        (.-indexes this)
-        (keys (.-indexes this)))
-      (.-as-of this) (.-metadata this)))
-  #_
+  (write* [this write-tag tuples]
+    (let [tuples (cons (s/coerce-tuple write-tag s/write-time (now) write-tag) tuples)]
+      (MemSpace.
+        (reduce
+          (fn [indexes index-keys]
+            (update-in indexes [index-keys] into tuples))
+          (.-indexes this)
+          (keys (.-indexes this)))
+        (.-as-of this) (.-metadata this)))))
+
+#_
+(extend-type MemSpace
   (as-of
     ([this] as-of)
     ([this time]
@@ -278,6 +277,24 @@ well as expression clauses."
 ; TODO eventually compile fns for each match-vector that use
 ; core.match for optimal filtering after index lookup
 
+(defn- sortable-match-tuple
+  [t wildcard]
+  (reduce (fn [t [k v]]
+            (if-not (variable? v)
+              t
+              (assoc t k wildcard)))
+    t t))
+
+(defn match-index*
+  [index match-tuple]
+  (subseq index
+    >= (sortable-match-tuple match-tuple s/index-bottom)
+    <= (sortable-match-tuple match-tuple s/index-top)))
+
+(defn match-index
+  [index match-vector]
+  (match-index* index (match-tuple match-vector)))
+
 (defn- match*
   [space index-keys match-vector binding-vector whole-tuple-binding]
   (let [index (index space index-keys)
@@ -287,16 +304,8 @@ well as expression clauses."
                      (str "No index available for " match-vector))))
         binding-tuple (coerce-match-tuple (match-tuple binding-vector))
         match-tuple (coerce-match-tuple (match-tuple match-vector))
-        slot-bindings (filter (comp binding? val) binding-tuple)
-        sortable-match-tuple (fn [t wildcard]
-                               (reduce (fn [t [k v]]
-                                         (if-not (variable? v)
-                                           t
-                                           (assoc t k wildcard)))
-                                 t t))]
-    (->> (subseq index
-           >= (sortable-match-tuple match-tuple s/index-bottom)
-           <= (sortable-match-tuple match-tuple s/index-top))
+        slot-bindings (filter (comp binding? val) binding-tuple)]
+    (->> (match-index* index match-tuple)
       (filter (partial every? (fn [[k v]]
                                 (let [v2 (k match-tuple)]
                                   (or (variable? v2) (= v v2))))))
