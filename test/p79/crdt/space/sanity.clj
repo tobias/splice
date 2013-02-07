@@ -101,11 +101,11 @@
                                [[_ _ ?k] (range (/ ?v 3) -1 -1)]]}
       
       ; whole-tuple selection
-      [[(s/coerce-tuple "y" :b "c" (-> space meta ::s/writes first) nil)]
-       [(s/coerce-tuple "y" :b 6 (-> s2 meta ::s/writes first) nil)]]
+      [[(s/coerce-tuple "y" :b "c" (-> space meta ::s/last-write) nil)]
+       [(s/coerce-tuple "y" :b 6 (-> s2 meta ::s/last-write) nil)]]
       '{:select [?t]
         :where [["y" _ _ _ :as ?t]]}
-      [[6 (s/coerce-tuple "y" :b 6 (-> s2 meta ::s/writes first) nil)]]
+      [[6 (s/coerce-tuple "y" :b 6 (-> s2 meta ::s/last-write) nil)]]
       '{:select [?v ?t]
         :where [["y" _ ?v _ :as ?t]
                 (-> ?t :v number?)]}
@@ -257,9 +257,10 @@
     (is (= #{[1] [2]} (q s '{:select [?v] :where [[_ :a ?v] (number? ?v)]})))
     (let [attr-writes (q s '{:select [?a ?t] :where [[_ ?a 2 ?t]]})
           remove-write (s/time-uuid)
-          remove-tuples (map (fn [[attr write]] ["x" attr 2 remove-write write]) attr-writes)
-          ;_ (println remove-tuples)
-          s (write s remove-tuples)]
+          remove-tuples (map
+                          (fn [[attr write]] (s/coerce-tuple "x" attr 2 remove-write write))
+                          attr-writes)
+          s (s/write* s remove-write remove-tuples)]
       
       ;; TODO it would be great to be able to write this query and have it work
       ;; need to eventually figure out how to (automatically?) selectively disable
