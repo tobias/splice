@@ -228,16 +228,29 @@ Each write is sent as a sequence of tuples."
 (def replication-change-fn (comp {clojure.lang.Atom swap!
                                   clojure.lang.Agent send} class))
 
-(defn replicate-last-write
-  [target-space-reference source-space]
+(defn write-change
+  [source-space]
   (when-let [write (-> source-space meta ::last-write)]
-    (let [replicatable-tuples (q source-space '{:select [?t]
-                                                :args [?write]
-                                                :where [[_ ?a _ ?write :as ?t]
-                                                        (not (isa? ?a p79.crdt.space/unreplicated))]}
-                                write)]
-      ((replication-change-fn target-space-reference)
-        target-space-reference write* write (apply concat replicatable-tuples)))))
+    (let [tuples (q source-space '{:select [?t]
+                                   :args [?write]
+                                   :where [[_ _ _ ?write :as ?t]]}
+                   write)]
+      ;; this ::last-write metadata isn't going to last long on this seq...
+      (with-meta (apply concat tuples) {::last-write write}))))
+
+(defn write*-to-reference
+  [target-space-reference write-tuples]
+  ((replication-change-fn target-space-reference)
+    target-space-reference write*
+    (-> write-tuples meta ::last-write)
+    (remove #(isa? (:a %) unreplicated) write-tuples)))
+
+(defn tuples->disk
+  [path write-tuples]
+  (with-open [w (clojure.java.io/writer path :append true)]
+    (doseq [t (map tuple->vector write-tuples)]
+      (.write w (pr-str t))
+      (.write w "\n"))))
 
 (deftype IndexBottom [])
 (deftype IndexTop [])

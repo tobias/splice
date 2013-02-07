@@ -56,6 +56,14 @@
 (def ^:private empty-indexes (into {} (for [[index-keys comparator] index-types]
                                         [index-keys (sorted-set-by comparator)])))
 
+(defn- add-tuples
+  [indexes tuples]
+  (reduce
+    (fn [indexes index-keys]
+      (update-in indexes [index-keys] into tuples))
+    indexes
+    (keys indexes)))
+
 (deftype MemSpace [indexes as-of metadata]
   clojure.lang.IMeta
   (meta [this] metadata)
@@ -65,23 +73,17 @@
   (write* [this write-tag tuples]
     (let [tuples (cons (s/coerce-tuple write-tag s/write-time (now) write-tag) tuples)]
       (MemSpace.
-        (reduce
-          (fn [indexes index-keys]
-            (update-in indexes [index-keys] into tuples))
-          (.-indexes this)
-          (keys (.-indexes this)))
-        (.-as-of this) (.-metadata this)))))
-
-#_
-(extend-type MemSpace
+        (add-tuples indexes tuples)
+        as-of metadata)))
+  #_
   (as-of
     ([this] as-of)
     ([this time]
       (MemSpace. (.-indexes this) time (.-metadata this)))))
 
 (defn in-memory
-  []
-  (MemSpace. empty-indexes nil {}))
+  ([] (MemSpace. empty-indexes nil {}))
+  ([init-tuples] (MemSpace. (add-tuples empty-indexes init-tuples) nil {})))
 
 (defn- match-tuple
   [match-vector]
@@ -90,7 +92,7 @@
 
 (defn- query-reorder-clauses
   [clauses]
-  (sort-by (comp count #(filter #{'_} %) vals match-tuple) clauses))
+  (sort-by (comp count #(filter '#{_} %) vals match-tuple) clauses))
 
 (defn- binding? [x]
   (and (symbol? x) (->> x name (re-matches #"\?.+"))))
