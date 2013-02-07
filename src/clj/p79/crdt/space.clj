@@ -99,12 +99,19 @@ The 4-arg arity defaults [remove] to false."
   ([e a v write remove]
     (Tuple. (entity e) a v (entity write) (entity remove))))
 
+(let [tuple->vector* (juxt :e :a :v :write)]
+  (defn tuple->vector
+    [t]
+    (let [v (tuple->vector* t)
+          remove (:remove t)]
+      (if remove (conj v remove) v))))
+
 (extend-protocol AsTuples
   nil
   (as-tuples [x] [])
   java.util.List
   (as-tuples [ls]
-    (if (== 5 (count ls))
+    (if (or (== 4 (count ls)) (== 5 (count ls)))
       [(apply coerce-tuple ls)]
       (throw (IllegalArgumentException.
                (str "Vector/list cannot be tuple-ized, bad size: " (count ls))))))
@@ -173,13 +180,13 @@ a map of operation metadata, first converting it to tuples with `as-tuples`."
   ([this op-meta data]
     (let [time (now)
           tuples (mapcat as-tuples data)
-          _ (assert (not-any? :write tuples) "Data provided to ")
+          _ (assert (not-any? :write tuples)
+              (str "Data provided to `write` already has :write tag " (some :write tuples)))
           write (entity (time-uuid (.getTime time)))
           op-meta (merge {:time time} op-meta {:db/id write})
           tuples (->> tuples
                    (concat (as-tuples op-meta))
                    (add-write-tag write))]
-      (println this)
       (-> this
         (write* write tuples)
         (update-write-meta write)))))
