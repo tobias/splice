@@ -1,73 +1,25 @@
 (ns p79.crdt.space
+  ^:clj (:require
+          [p79.crdt.space.root-type :refer (defroottype)])
+  ^:cljs (:require-macros
+           [p79.crdt.space.root-type :refer (defroottype)])
   (:require [p79.crdt :as crdt]
             [p79.crdt.map :as map]
-            [cemerick.utc-dates :refer (now)]
+            [port79.hosty :refer (now current-time-ms)]
+            [port79.uuid :refer (time-uuid random-uuid)]
             [clojure.set :as set]
             [clojure.walk :as walk]
             [clojure.pprint :as pp])
   (:refer-clojure :exclude (replicate)))
 
-(def unreplicated ::unreplicated)
-(def write-time ::write-time)
+;; TODO all :p79.crdt.space/* usage (instead of ::foo) due to
+;; https://github.com/jonase/kibit/issues/72 via cljx
+(def unreplicated :p79.crdt.space/unreplicated)
+(def write-time :p79.crdt.space/write-time)
 (derive write-time unreplicated)
 
-(def ^:private rng (java.security.SecureRandom.))
-
-(defn uuid [] (str (java.util.UUID/randomUUID)))
-(defn time-uuid
-  "Returns a sequential UUID. Guaranteed to:
-
-(a) monotonically increase lexicographically
-(b) contain [time] (or the current time in millis) as the most significant bits"
-  ([] (time-uuid (System/currentTimeMillis)))
-  ([time] (str (java.util.UUID. time (.nextLong rng)))))
-
-(defmacro defroottype
-  [type-name ctor-name type-tag value-name value-pred]
-  (let [value-field (symbol (str ".-" value-name))
-        type-tag (str "#" type-tag " ")
-        [arg arg2] [(gensym) (gensym)]
-        [type-arg type-arg2] (map #(with-meta % {:tag type-name}) [arg arg2])]
-    `(do
-       (deftype ~type-name [~value-name]
-         clojure.lang.IDeref
-         (deref [~arg] (~value-field ~type-arg))
-         Comparable
-         (compareTo [~arg ~arg2]
-           (compare (~value-field ~type-arg) (~value-field ~type-arg2)))
-         Object
-         (toString [~arg] (pr-str ~arg))
-         (hashCode [~arg] (inc (hash (~value-field ~type-arg))))
-         (equals [~arg ~arg2]
-           (and (instance? ~type-name ~arg2)
-             (= (~value-field ~type-arg) (~value-field ~type-arg2))))
-         ;; this here only for the benefit of Tombstone
-         clojure.lang.ILookup
-         (valAt [this# k#] (get ~value-name k#))
-         (valAt [this# k# default#] (get ~value-name k# default#)))
-       (defmethod print-method ~type-name [~type-arg ^java.io.Writer w#]
-         (.write w# ~type-tag)
-         (print-method (~value-field ~type-arg) w#))
-       (defmethod print-dup ~type-name [o# w#]
-         (print-method o# w#))
-       (#'pp/use-method pp/simple-dispatch ~type-name #'pp/pprint-simple-default)
-       (defn ~(symbol (str ctor-name "?"))
-         ~(str "Returns true iff the sole argument is a " type-name)
-         [x#]
-         (instance? ~type-name x#))
-       (defn ~ctor-name
-         ~(str "Creates a new " type-name)
-         [e#]
-         (when e#
-           (cond
-             (instance? ~type-name e#) e#
-             (~value-pred e#) (~(symbol (str type-name ".")) e#)
-             :else (throw
-                     (IllegalArgumentException.
-                       (str "Cannot create " ~type-name " with value of type "
-                         (class e#))))))))))
-
-(defroottype Entity entity "entity" e string?)
+^:clj (defroottype :clj Entity entity "entity" e string?)
+^:cljs (defroottype :cljs Entity entity "entity" e string?)
 ;; TODO not sure if this distinct reference type is worthwhile.
 ;; if the primary use case is referring to entities, then #entity "abcd" is
 ;; no worse than #ref #entity "abcd", right?  Even the generalized case of e.g.
@@ -166,7 +118,7 @@ The 4-arg arity defaults [remove] to false."
 
 (defn update-write-meta
   [space write-tag]
-  (vary-meta space assoc ::last-write write-tag))
+  (vary-meta space assoc :p79.crdt.space/last-write write-tag))
 
 (defn- add-write-tag
   [write tuples]
@@ -230,19 +182,19 @@ Each write is sent as a sequence of tuples."
 
 (defn write-change
   [source-space]
-  (when-let [write (-> source-space meta ::last-write)]
+  (when-let [write (-> source-space meta :p79.crdt.space/last-write)]
     (let [tuples (q source-space '{:select [?t]
                                    :args [?write]
                                    :where [[_ _ _ ?write :as ?t]]}
                    write)]
       ;; this ::last-write metadata isn't going to last long on this seq...
-      (with-meta (apply concat tuples) {::last-write write}))))
+      (with-meta (apply concat tuples) {:p79.crdt.space/last-write write}))))
 
 (defn write*-to-reference
   [target-space-reference write-tuples]
   ((replication-change-fn target-space-reference)
     target-space-reference write*
-    (-> write-tuples meta ::last-write)
+    (-> write-tuples meta :p79.crdt.space/last-write)
     (remove #(isa? (:a %) unreplicated) write-tuples)))
 
 (defn tuples->disk
@@ -265,5 +217,5 @@ Each write is sent as a sequence of tuples."
       (cond
         (not (map? x)) x
         (:db/id x) x
-        :else (assoc x :db/id (uuid))))
+        :else (assoc x :db/id (random-uuid))))
     m))

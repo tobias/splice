@@ -2,7 +2,8 @@
   (:require [p79.crdt.space :as s :refer (write q)]
             [p79.crdt.space.memory :as mem :refer (in-memory)]
             [p79.read :refer (read-seq)]
-    [clojure.pprint :as pp])
+            [port79.uuid :refer (random-uuid)]
+            [clojure.pprint :as pp])
   (:use clojure.test))
 
 (deftest in-memory-atoms
@@ -11,8 +12,8 @@
     (s/watch-changes src (comp (partial s/write*-to-reference tgt) s/write-change))
     (swap! src s/write [{:a 5 :db/id "foo"}])
     (let [query '{:select [?k ?v ?write ?write-time]
-                       :where [["foo" ?k ?v ?write]
-                               [?write ::s/write-time ?write-time]]}
+                  :where [["foo" ?k ?v ?write]
+                          [?write ::s/write-time ?write-time]]}
           [sr] (seq (q @src query))
           [tr] (seq (q @tgt query))]
       (is (= (butlast sr) (butlast tr)))
@@ -25,8 +26,8 @@
     (send src s/write [{:a 5 :db/id "foo"}])
     (await src tgt)
     (let [query '{:select [?k ?v ?write ?write-time]
-                       :where [["foo" ?k ?v ?write]
-                               [?write ::s/write-time ?write-time]]}
+                  :where [["foo" ?k ?v ?write]
+                          [?write ::s/write-time ?write-time]]}
           [sr] (seq (q @src query))
           [tr] (seq (q @tgt query))]
       (is (= (butlast sr) (butlast tr)))
@@ -37,7 +38,7 @@
         f (java.io.File/createTempFile "replication" ".tuples")]
     (s/watch-changes src (comp (partial s/tuples->disk (.getAbsolutePath f)) s/write-change))
     (dotimes [x 1]
-      (swap! src s/write [{:a x :db/id (s/uuid)}]))
+      (swap! src s/write [{:a x :db/id (random-uuid)}]))
     (let [replica (->> (read-seq (.getAbsolutePath f))
                     (map (partial apply s/coerce-tuple))
                     in-memory)]

@@ -1,7 +1,7 @@
 (ns p79.crdt.space.memory
   (:require [p79.crdt.space :as s :refer (Space IndexedSpace ->Tuple available-indexes
                                            entity index)]
-            [cemerick.utc-dates :refer (now)]
+            [port79.hosty :refer (now)]
             [clojure.math.combinatorics :refer (cartesian-product)]
             [clojure.core.match :as match]
             [clojure.set :as set]
@@ -21,22 +21,20 @@
               (compare x x2)
               type-compare))))
 
-(defmacro ^:private index-comparator* [t t2 [k & tuple-keys]]
-  (if-not k
-    0
-    `(let [x# (compare-values (~k ~t) (~k ~t2))]
-       (if (zero? x#)
-         (index-comparator* ~t ~t2 ~tuple-keys)
-         x#))))
+(defn- index-comparator* [t t2 tuple-keys]
+  (if-let [k (first tuple-keys)]
+    (let [x (compare-values (k t) (k t2))]
+       (if (zero? x)
+         (recur t t2 (rest tuple-keys))
+         x))
+    0))
 
-(defmacro ^:private index-comparator [tuple-keys]
-  (let [t (gensym "t")
-        t2 (gensym "t2")]
-    `(with-meta
-       (reify java.util.Comparator
-         (compare [this# ~t ~t2]
-           (index-comparator* ~t ~t2 ~tuple-keys)))
-       {:index-keys '~tuple-keys})))
+(defn- index-comparator [tuple-keys]
+  (with-meta
+    (reify java.util.Comparator
+      (compare [this# t t2]
+        (index-comparator* t t2 tuple-keys)))
+    {:index-keys tuple-keys}))
 
 ;; TODO Q: why does datomic have the indices that it has? Wouldn't one index
 ;; per "column" (time, tag, e, a, v) take care of all query possibilities?

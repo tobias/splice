@@ -1,6 +1,7 @@
 (ns p79.crdt.space.sanity
   (:require [p79.crdt.space :as s :refer (write q)]
             [p79.crdt.space.memory :as mem :refer (in-memory)]
+            [port79.uuid :refer (time-uuid)]
     [clojure.pprint :as pp])
   (:use clojure.test))
 
@@ -256,7 +257,7 @@
   (let [s (write (in-memory) [{:a #{"y" :x 1 2} :b #{2 4} :db/id "x"}])]
     (is (= #{[1] [2]} (q s '{:select [?v] :where [[_ :a ?v] (number? ?v)]})))
     (let [attr-writes (q s '{:select [?a ?t] :where [[_ ?a 2 ?t]]})
-          remove-write (s/time-uuid)
+          remove-write (time-uuid)
           remove-tuples (map
                           (fn [[attr write]] (s/coerce-tuple "x" attr 2 remove-write write))
                           attr-writes)
