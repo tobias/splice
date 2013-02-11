@@ -218,6 +218,12 @@ The "eid" for operation metadata tuples is compound because we need to use the
 same tag when deleting a tuple.  It's the timestamp that distinguishes between
 meta on an add operation and meta on a remove operation.
 
+TODO: `remove` slot should be :operation (or similar), with options of
+* `nil` (assert)
+* `:remove` (removal, no impact on history)
+* `:replace` (equivalent to noHistory in datomic)
+* 
+
 ### Multi-datastore capability
 
 i.e. for when the core of this is open sourced, and everyone can run a
