@@ -81,4 +81,5 @@
                :else (throw
                        (js/Error.
                          (str "Cannot create " ~type-name " with value of type "
-                           (type e#)))))))))))
+                           (type e#)))))))
+         (cljs.reader/register-tag-parser! '~ctor-name ~ctor-name)))))
