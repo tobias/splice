@@ -513,6 +513,22 @@ set to false)
   * awesome, but enforces linearizability of _all_ operations; definitionally
     impossible to distribute or scale horizontally
 
+## ClojureScript suckage
+
+Here for want of a better place to put it.
+
+* no eval (when you need it, you **really** need it)
+* macros are written in Clojure, which wouldn't matter except for:
+ * syntax-quote fully-qualifying symbols given the macro's _Clojure_ namespace, which has roughly zero relation to where the generated code is going to land in _ClojureScript_
+* no extend
+* no base types for data structures, which means it's a PITA to extend a protocol to e.g. all maps, or all sequential things.  You need to `extend-protocol` to default, and then dynamically `extend-protocol` to each encountered concrete type depending on whether it `satisfies` particular protocols or not.
+ * This technique requires duplicating the dynamic extend-protocol everywhere, which would be perfect work for a macro, but you go reliably write cljs macros, I'll wait.
+* Shite numerics, but we can forgive cljs its host's weaknesses
+ * However, there _are_ arbitrary-precision javascript numeric libraries out there...
+* The naming of protocols and their methods differs unnecessarily from the corresponding bits in Clojure, making it absolutely nightmarish to write portable type/protocol/record code.
+* No reified namespaces...bad enough, and I might be able to handle it, except you can't even resolve a function (nevermind some equivalent to vars) for a given symbol.  This is in part due to ClojureScript's name munging (which could be canonicalized and exposed via a `resolve` fn), and also due to Google Closure's inevitable munging and tree-shaking (which cljs has no view into...although, hello, source maps?)
+
+
 ## License
 
 Copyright © 2012 TODO

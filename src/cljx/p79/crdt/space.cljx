@@ -12,10 +12,8 @@
             [clojure.pprint :as pp])
   (:refer-clojure :exclude (replicate)))
 
-;; TODO all :p79.crdt.space/* usage (instead of ::foo) due to
-;; https://github.com/jonase/kibit/issues/72 via cljx
-(def unreplicated :p79.crdt.space/unreplicated)
-(def write-time :p79.crdt.space/write-time)
+(def unreplicated ::unreplicated)
+(def write-time ::write-time)
 (derive write-time unreplicated)
 
 ^:clj (defroottype :clj Entity entity "entity" e string?)
@@ -58,37 +56,70 @@ The 4-arg arity defaults [remove] to false."
           remove (:remove t)]
       (if remove (conj v remove) v))))
 
+(defn throw-arg
+  [& msg]
+  (throw (^:clj IllegalArgumentException. ^:cljs js/Error. (apply str msg))))
+
+(defn- seq->tuples
+  [ls]
+  (if (or (== 4 (count ls)) (== 5 (count ls)))
+    [(apply coerce-tuple ls)]
+    (throw-arg "Vector/list cannot be tuple-ized, bad size: " (count ls))))
+
+(defn- map->tuples
+  [m]
+  ;; if Tuple ever loses its inline impl of as-tuples, we *must*
+  ;; rewrite this to dynamically extend AsTuples to concrete Map
+  ;; types; otherwise, there's no way to prefer an extension to
+  ;; Tuple over one to java.util.Map
+  (if-let [[_ e] (find m :db/id)]
+    (let [time (:db/time m)
+          s (seq (dissoc m :db/id))]
+      (if s
+        (mapcat (fn [[k v]]
+                  (let [v (if (set? v) v #{v})]
+                    (let [maps (filter map? v)
+                          other (concat
+                                  (remove map? v)
+                                  (map (comp entity :db/id) maps))]
+                      (concat
+                        (mapcat map->tuples maps)
+                        (map (fn [v] (coerce-tuple e k v nil nil)) other)))))
+          s)
+        (throw-arg "Empty Map cannot be tuple-ized.")))
+    (throw-arg "Map cannot be tuple-ized, no :db/id")))
+
 (extend-protocol AsTuples
   nil
-  (as-tuples [x] [])
-  java.util.List
-  (as-tuples [ls]
-    (if (or (== 4 (count ls)) (== 5 (count ls)))
-      [(apply coerce-tuple ls)]
-      (throw (IllegalArgumentException.
-               (str "Vector/list cannot be tuple-ized, bad size: " (count ls))))))
-  java.util.Map
-  (as-tuples [m]
-    ;; if Tuple ever loses its inline impl of as-tuples, we *must*
-    ;; rewrite this to dynamically extend AsTuples to concrete Map
-    ;; types; otherwise, there's no way to prefer an extension to
-    ;; Tuple over one to java.util.Map
-    (if-let [[_ e] (find m :db/id)]
-      (let [time (:db/time m)
-            s (seq (dissoc m :db/id))]
-        (if s
-          (mapcat (fn [[k v]]
-                    (let [v (if (set? v) v #{v})]
-                      (let [maps (filter map? v)
-                            other (concat
-                                    (remove map? v)
-                                    (map (comp entity :db/id) maps))]
-                        (concat
-                          (mapcat as-tuples maps)
-                          (map (fn [v] (coerce-tuple e k v nil nil)) other)))))
-            s)
-          (throw (IllegalArgumentException. "Empty Map cannot be tuple-ized."))))
-      (throw (IllegalArgumentException. "Map cannot be tuple-ized, no :db/id")))))
+  (as-tuples [x] []))
+
+^:clj
+(extend java.util.List
+  AsTuples
+  {:as-tuples seq->tuples})
+^:clj
+(extend java.util.Map
+  AsTuples
+  {:as-tuples map->tuples})
+#_
+;; die, clojurescript, die
+^:cljs
+(extend-protocol AsTuples
+  default
+  (as-tuples [x]
+    (let [type (type x)
+          extended? (cond
+                      (satisfies? ISequential x)
+                      (extend-protocol AsTuples
+                        type
+                        (as-tuples [x] (seq->tuples x)))
+                      (satisfies? IMap x)
+                      (extend-protocol AsTuples
+                        type
+                        (as-tuples [x] (map->tuples x))))]
+      (if extended?
+        (as-tuples x)
+        (throw-arg "No implementation of AsTuples available for " type)))))
 
 (defprotocol Space
   (write* [this write-tag tuples] "Writes the given tuples to this space.")
@@ -118,7 +149,7 @@ The 4-arg arity defaults [remove] to false."
 
 (defn update-write-meta
   [space write-tag]
-  (vary-meta space assoc :p79.crdt.space/last-write write-tag))
+  (vary-meta space assoc ::last-write write-tag))
 
 (defn- add-write-tag
   [write tuples]
@@ -177,26 +208,30 @@ Each write is sent as a sequence of tuples."
         (partial maybe-notify-write config change-fn))
       (:watch-key config))))
 
-(def replication-change-fn (comp {clojure.lang.Atom swap!
-                                  clojure.lang.Agent send} class))
+(def replication-change-fn (comp
+                             ^:clj {clojure.lang.Atom swap!
+                                    clojure.lang.Agent send}
+                             ^:cljs {clojure.lang.Atom swap!}
+                             type))
 
 (defn write-change
   [source-space]
-  (when-let [write (-> source-space meta :p79.crdt.space/last-write)]
+  (when-let [write (-> source-space meta ::last-write)]
     (let [tuples (q source-space '{:select [?t]
                                    :args [?write]
                                    :where [[_ _ _ ?write :as ?t]]}
                    write)]
       ;; this ::last-write metadata isn't going to last long on this seq...
-      (with-meta (apply concat tuples) {:p79.crdt.space/last-write write}))))
+      (with-meta (apply concat tuples) {::last-write write}))))
 
 (defn write*-to-reference
   [target-space-reference write-tuples]
   ((replication-change-fn target-space-reference)
     target-space-reference write*
-    (-> write-tuples meta :p79.crdt.space/last-write)
+    (-> write-tuples meta ::last-write)
     (remove #(isa? (:a %) unreplicated) write-tuples)))
 
+^:clj
 (defn tuples->disk
   [path write-tuples]
   (with-open [w (clojure.java.io/writer path :append true)]

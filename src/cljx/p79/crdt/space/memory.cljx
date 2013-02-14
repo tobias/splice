@@ -1,13 +1,13 @@
 (ns p79.crdt.space.memory
+  ^:clj (:require [clojure.core.match :as match])
+  ^:cljs (:require-macros [clojure.core.match :as match])
   (:require [p79.crdt.space :as s :refer (Space IndexedSpace ->Tuple available-indexes
                                            entity index)]
             [port79.hosty :refer (now)]
             [clojure.math.combinatorics :refer (cartesian-product)]
-            [clojure.core.match :as match]
             [clojure.set :as set]
             [clojure.walk :as walk]
-            [clojure.string :as str])
-  (:refer-clojure :exclude (read)))
+            [clojure.string :as str]))
 
 (defn- compare-values
   [x x2]
@@ -31,9 +31,11 @@
 
 (defn- index-comparator [tuple-keys]
   (with-meta
+    ^:clj
     (reify java.util.Comparator
-      (compare [this# t t2]
+      (compare [this t t2]
         (index-comparator* t t2 tuple-keys)))
+    ^:cljs #(index-comparator* % %2 tuple-keys)
     {:index-keys tuple-keys}))
 
 ;; TODO Q: why does datomic have the indices that it has? Wouldn't one index
@@ -63,10 +65,14 @@
     (keys indexes)))
 
 (deftype MemSpace [indexes as-of metadata]
-  clojure.lang.IMeta
-  (meta [this] metadata)
-  clojure.lang.IObj
-  (withMeta [this meta] (MemSpace. indexes as-of meta))
+  ^:clj clojure.lang.IMeta
+  ^:clj (meta [this] metadata)
+  ^:cljs IMeta
+  ^:cljs (meta [this] metadata)
+  ^:clj clojure.lang.IObj
+  ^:clj (withMeta [this meta] (MemSpace. indexes as-of meta))
+  ^:cljs IWithMeta
+  ^:cljs (-with-meta [this meta] (MemSpace. indexes as-of meta))
   Space
   (write* [this write-tag tuples]
     (let [tuples (cons (s/coerce-tuple write-tag s/write-time (now) write-tag) tuples)]
@@ -187,7 +193,7 @@ well as expression clauses."
                   #(reduce (partial plan-clause db args)
                      [] (reorder-expression-clauses %))  
                   clause)
-                (throw (IllegalArgumentException.
+                (throw (^:clj IllegalArgumentException. ^:cljs js/Error.
                          (str "Invalid disjunction; each sub-clause must be a vector (conjunction): "
                            clause))))}
     
@@ -234,7 +240,8 @@ well as expression clauses."
                  :index (pick-index (available-indexes db) bound-clause)
                  :op :match})))
     
-    :else (throw (IllegalArgumentException. (str "Invalid clause: " clause)))))
+    :else (throw (^:clj IllegalArgumentException. ^:cljs js/Error.
+                   (str "Invalid clause: " clause)))))
 
 (defn- plan-clause
   [db args plan clause]
@@ -300,7 +307,7 @@ well as expression clauses."
   (let [index (index space index-keys)
         ;; TODO this should *warn*, not throw, and just do a full scan
         _ (when (nil? index)
-            (throw (IllegalArgumentException.
+            (throw (^:clj IllegalArgumentException. ^:cljs js/Error.
                      (str "No index available for " match-vector))))
         binding-tuple (coerce-match-tuple (match-tuple binding-vector))
         match-tuple (coerce-match-tuple (match-tuple match-vector))

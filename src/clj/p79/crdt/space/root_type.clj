@@ -47,21 +47,21 @@
                            (type e#))))))))
       `(do
          (deftype ~type-name [~value-name]
-           cljs.core.IDeref
+           ~'IDeref
            (-deref [~arg] (~value-field ~type-arg))
-           IComparable
+           ~'IComparable
            (-compare [~arg ~arg2]
              (compare (~value-field ~type-arg) (~value-field ~type-arg2)))
-           Object
-           (toString [~arg] (pr-str ~arg))
-           cljs.core.IHash
+           ~'Object
+           (~'toString [~arg] (pr-str ~arg))
+           ~'IHash
            (-hash [~arg] (inc (hash (~value-field ~type-arg))))
-           cljs.core.IEquiv
+           ~'IEquiv
            (-equiv [~arg ~arg2]
              (and (instance? ~type-name ~arg2)
                (= (~value-field ~type-arg) (~value-field ~type-arg2))))
            ;; this here only for the benefit of Tombstone
-           cljs.core.ILookup
+           ~'ILookup
            (-lookup [this# k#] (get ~value-name k#))
            (-lookup [this# k# default#] (get ~value-name k# default#)))
          
