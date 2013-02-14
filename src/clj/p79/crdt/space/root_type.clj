@@ -48,22 +48,24 @@
       `(do
          (deftype ~type-name [~value-name]
            ~'IDeref
-           (-deref [~arg] (~value-field ~type-arg))
+           (~'-deref [~arg] (~value-field ~type-arg))
            ~'IComparable
-           (-compare [~arg ~arg2]
+           (~'-compare [~arg ~arg2]
              (compare (~value-field ~type-arg) (~value-field ~type-arg2)))
-           ~'Object
-           (~'toString [~arg] (pr-str ~arg))
+           ~'IPrintWithWriter
+           (~'-pr-writer [this# w# opts#]
+             (~'-write w# "#entity ")
+             (~'-pr-writer ~value-name w# opts#))
            ~'IHash
-           (-hash [~arg] (inc (hash (~value-field ~type-arg))))
+           (~'-hash [~arg] (inc (hash (~value-field ~type-arg))))
            ~'IEquiv
-           (-equiv [~arg ~arg2]
+           (~'-equiv [~arg ~arg2]
              (and (instance? ~type-name ~arg2)
                (= (~value-field ~type-arg) (~value-field ~type-arg2))))
            ;; this here only for the benefit of Tombstone
            ~'ILookup
-           (-lookup [this# k#] (get ~value-name k#))
-           (-lookup [this# k# default#] (get ~value-name k# default#)))
+           (~'-lookup [this# k#] (get ~value-name k#))
+           (~'-lookup [this# k# default#] (get ~value-name k# default#)))
          
          (defn ~(symbol (str ctor-name "?"))
            ~(str "Returns true iff the sole argument is a " type-name)

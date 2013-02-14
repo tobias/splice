@@ -29,13 +29,16 @@
          x))
     0))
 
-(defn- index-comparator [tuple-keys]
+(defn- ^:clj index-comparator [tuple-keys]
   (with-meta
-    ^:clj
     (reify java.util.Comparator
       (compare [this t t2]
         (index-comparator* t t2 tuple-keys)))
-    ^:cljs #(index-comparator* % %2 tuple-keys)
+    {:index-keys tuple-keys}))
+
+(defn- ^:cljs index-comparator [tuple-keys]
+  (with-meta
+    #(index-comparator* % %2 tuple-keys)
     {:index-keys tuple-keys}))
 
 ;; TODO Q: why does datomic have the indices that it has? Wouldn't one index
@@ -68,7 +71,7 @@
   ^:clj clojure.lang.IMeta
   ^:clj (meta [this] metadata)
   ^:cljs IMeta
-  ^:cljs (meta [this] metadata)
+  ^:cljs (-meta [this] metadata)
   ^:clj clojure.lang.IObj
   ^:clj (withMeta [this meta] (MemSpace. indexes as-of meta))
   ^:cljs IWithMeta

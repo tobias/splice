@@ -101,7 +101,7 @@ The 4-arg arity defaults [remove] to false."
 (extend java.util.Map
   AsTuples
   {:as-tuples map->tuples})
-#_
+
 ;; die, clojurescript, die
 ^:cljs
 (extend-protocol AsTuples
