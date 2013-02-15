@@ -14,15 +14,17 @@
 (defn compare-values
   [x x2]
   (cond
+    ;; TODO probably safe to make these comparisons identical?
     (= s/index-bottom x) -1
     (= s/index-bottom x2) 1
     (= s/index-top x) 1
     (= s/index-top x2) -1
-    :else (let [type-compare (compare (str (type x)) (str (type x2)))]
-            (if (zero? type-compare)
+    ;; all we're doing here is stratifying values of different types, then
+    ;; ordering as with compare for each grouping
+    :else (let [t1 (type x)
+                t2 (type x2)]
+            (if (identical? t1 t2)
               (compare x x2)
-              type-compare))))
-
               (compare (str t1) (str t2))))))
 
 ;; TODO Q: why does datomic have the indices that it has? Wouldn't one index
