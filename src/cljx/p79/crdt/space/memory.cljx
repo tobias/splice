@@ -1,6 +1,7 @@
 (ns p79.crdt.space.memory
   ^:clj (:require [clojure.core.match :as match])
-  ^:cljs (:require-macros [clojure.core.match :as match])
+  ^:clj (:require [p79.crdt.space.memory.indexing :refer (index-comparator)])
+  ^:cljs (:require-macros [p79.crdt.space.memory.indexing :refer (index-comparator)])
   (:require [p79.crdt.space :as s :refer (Space IndexedSpace ->Tuple available-indexes
                                            entity index)]
             [port79.hosty :refer (now)]
@@ -9,7 +10,8 @@
             [clojure.walk :as walk]
             [clojure.string :as str]))
 
-(defn- compare-values
+;; public only to satisfy index-comparator
+(defn compare-values
   [x x2]
   (cond
     (= s/index-bottom x) -1
@@ -21,25 +23,7 @@
               (compare x x2)
               type-compare))))
 
-(defn- index-comparator* [t t2 tuple-keys]
-  (if-let [k (first tuple-keys)]
-    (let [x (compare-values (k t) (k t2))]
-       (if (zero? x)
-         (recur t t2 (rest tuple-keys))
-         x))
-    0))
-
-(defn- ^:clj index-comparator [tuple-keys]
-  (with-meta
-    (reify java.util.Comparator
-      (compare [this t t2]
-        (index-comparator* t t2 tuple-keys)))
-    {:index-keys tuple-keys}))
-
-(defn- ^:cljs index-comparator [tuple-keys]
-  (with-meta
-    #(index-comparator* % %2 tuple-keys)
-    {:index-keys tuple-keys}))
+              (compare (str t1) (str t2))))))
 
 ;; TODO Q: why does datomic have the indices that it has? Wouldn't one index
 ;; per "column" (time, tag, e, a, v) take care of all query possibilities?
