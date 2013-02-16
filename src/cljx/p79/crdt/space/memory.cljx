@@ -2,8 +2,7 @@
   ^:clj (:require [clojure.core.match :as match])
   ^:clj (:require [p79.crdt.space.memory.indexing :refer (index-comparator)])
   ^:cljs (:require-macros [p79.crdt.space.memory.indexing :refer (index-comparator)])
-  (:require [p79.crdt.space :as s :refer (Space IndexedSpace ->Tuple available-indexes
-                                           entity index)]
+  (:require [p79.crdt.space :as s :refer (Space IndexedSpace ->Tuple entity index)]
             [port79.hosty :refer (now)]
             [clojure.math.combinatorics :refer (cartesian-product)]
             [clojure.set :as set]
@@ -41,6 +40,8 @@
                             [:a :v :e :write :remove] (index-comparator [:a :v :e :write :remove])
                             [:write :a :e :v :remove] (index-comparator [:write :a :e :v :remove])
                             [:v :a :e :write :remove] (index-comparator [:v :a :e :write :remove])})
+
+(def ^:private available-indexes (-> index-types keys set))
 
 (def ^:private empty-indexes (into {} (for [[index-keys comparator] index-types]
                                         [index-keys (sorted-set-by comparator)])))
@@ -118,7 +119,7 @@
       pairs
       (recur (into pairs (map (fn [x2] [x x2]) xs)) xs))))
 
-(defmulti plan #(-> %& second :planner))
+(defmulti plan :planner)
 
 (def ^:private predicate-clause? list?)
 (defn- function-clause? [x]
@@ -172,14 +173,14 @@ well as expression clauses."
     set))
 
 (defn- plan-clause*
-  [db args bound-clause clause]
+  [args bound-clause clause]
   (match/match [clause]
     
     [(_ :guard set?)]
     {:op :disjunction
      :clauses (if (every? vector? clause)
                 (mapv
-                  #(reduce (partial plan-clause db args)
+                  #(reduce (partial plan-clause args)
                      [] (reorder-expression-clauses %))  
                   clause)
                 (throw (^:clj IllegalArgumentException. ^:cljs js/Error.
@@ -214,26 +215,26 @@ well as expression clauses."
     [[& _]]
     (let [disjunctions-expanded (expand-disjunctive-clause clause)]
       (if (< 1 (count disjunctions-expanded))
-        (plan-clause* db args bound-clause disjunctions-expanded)
+        (plan-clause* args bound-clause disjunctions-expanded)
         (match/match [clause]
           
           [[_ _ _ _ ':as whole-tuple-binding]]
           (let [bound-clause (subvec bound-clause 0 4)]
             {:bound-clause bound-clause
-             :index (pick-index (available-indexes db) bound-clause)
+             :index (pick-index available-indexes bound-clause)
              :op :match
              :clause (subvec clause 0 4)
              :whole-tuple-binding whole-tuple-binding})
           
           :else {:bound-clause bound-clause
-                 :index (pick-index (available-indexes db) bound-clause)
+                 :index (pick-index available-indexes bound-clause)
                  :op :match})))
     
     :else (throw (^:clj IllegalArgumentException. ^:cljs js/Error.
                    (str "Invalid clause: " clause)))))
 
 (defn- plan-clause
-  [db args plan clause]
+  [args plan clause]
   (let [{prev-bound :bound-bindings prev-binds :bindings} (-> plan meta :last-clause)
         prev-bound (set/union prev-bound prev-binds)
         bound-clause (mapv #(if (or (get prev-bound %) (some #{%} args))
@@ -243,18 +244,18 @@ well as expression clauses."
         planned-clause (merge {:clause clause
                                :bindings bindings
                                :bound-bindings prev-bound}
-                         (plan-clause* db args bound-clause clause))]
+                         (plan-clause* args bound-clause clause))]
     (conj
       (with-meta plan {:last-clause planned-clause})
       planned-clause)))
 
 (defmethod plan :default
-  [db {:keys [select args subs where] :as query}]
+  [{:keys [select args subs where] :as query}]
   (-> (assoc query
         :subs (into {} (for [[name subquery] subs]
-                         [name (plan db subquery)]))
+                         [name (plan subquery)]))
         :where (let [where (if (set? where) [where] where)]
-                 (reduce (partial plan-clause db (:args query))
+                 (reduce (partial plan-clause (:args query))
                    [] (reorder-expression-clauses where))))
     (vary-meta assoc :planned true)))
 
@@ -370,7 +371,7 @@ well as expression clauses."
   (available-indexes [this] (-> index-types keys set))
   (index [this index-type] ((.-indexes this) index-type))
   (q* [space {:keys [select planner args subs where] :as query} arg-values]
-    (let [query (if (-> query meta :planned) query (plan space query))
+    (let [query (if (-> query meta :planned) query (plan query))
           args (zipmap args arg-values)
           matches (query* space query #{args})]
       (->> matches

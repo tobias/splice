@@ -175,7 +175,8 @@ a map of operation metadata, first converting it to tuples with `as-tuples`."
         (update-write-meta write)))))
 
 (defprotocol IndexedSpace
-  (available-indexes [this])
+  ;; TODO a good idea, but not compatible with compile-time query planning
+  ;(available-indexes [this])
   (index [this index-type])
   (q* [this query args]
      "Queries this space, returning a seq of results per the query's specification"))
