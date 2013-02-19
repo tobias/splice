@@ -9,7 +9,8 @@
             [port79.uuid :refer (time-uuid random-uuid)]
             [clojure.set :as set]
             [clojure.walk :as walk]
-            [clojure.pprint :as pp])
+            [clojure.pprint :as pp]
+            ^:cljs [cljs.reader])
   (:refer-clojure :exclude (replicate)))
 
 (def unreplicated ::unreplicated)
