@@ -3,26 +3,8 @@
             [p79.crdt.space.memory :refer (in-memory)]
             [p79.crdt.space.memory.planning :as planning]
             [port79.uuid :refer (time-uuid)]
-    [clojure.pprint :as pp])
+            [clojure.pprint :as pp])
   (:use clojure.test))
-
-(deftest default-planner
-  (is (= '[[?e :g ?v] (pos? ?v) [?e :a ?a] (pos? ?a) [?e :b 5 "tag"]]
-        (#'planning/reorder-expression-clauses
-          '[(pos? ?v)
-            [?e :g ?v]
-            (pos? ?a)
-            [?e :a ?a]
-            [?e :b 5 "tag"]]))))
-
-(deftest predicate-expression-compilation
-  (let [expr '(> 30 (inc ?x) ?y)
-        fn (#'planning/expression-clause (#'planning/clause-bindings expr) expr)]
-    (is (= {:code ''(fn [{:syms [?y ?x]}] (> 30 (inc ?x) ?y))
-            :clause `'~expr}
-          (meta fn)))
-    (is (= false ((eval fn) '{?x 29 ?y 20})))
-    (is (= true ((eval fn) '{?x 28 ?y 20})))))
 
 (deftest basic-queries
   (let [s1 (write (in-memory) [{:a 6 :b 12 :db/id "x"}])
