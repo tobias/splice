@@ -2,8 +2,7 @@
   (:require [p79.crdt.space :as s :refer (write q)]
             [p79.crdt.space.memory :as mem :refer (in-memory)]
             [p79.read :refer (read-seq)]
-            [port79.uuid :refer (random-uuid)]
-            [clojure.pprint :as pp])
+            [port79.uuid :refer (random-uuid)])
   (:use clojure.test))
 
 (deftest in-memory-atoms

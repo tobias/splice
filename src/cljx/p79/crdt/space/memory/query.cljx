@@ -1,7 +1,8 @@
 (ns p79.crdt.space.memory.query
   ^:clj (:require [p79.crdt.space.memory.indexing :refer (index-comparator)])
   ^:cljs (:require-macros [p79.crdt.space.memory.indexing :refer (index-comparator)])
-  (:require [p79.crdt.space :as s :refer (->Tuple entity index)]
+  (:require [p79.crdt.space :as s :refer (->Tuple index)]
+            [p79.crdt.space.types :refer (entity)]
             [clojure.set :as set]))
 
 (defn- compare-values

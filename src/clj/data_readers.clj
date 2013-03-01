@@ -1,1 +1,1 @@
-{entity p79.crdt.space/entity}
+{entity p79.crdt.space.types/entity}

@@ -1,24 +1,20 @@
 (ns p79.crdt.space
-  ^:clj (:require
-          [p79.crdt.space.root-type :refer (defroottype)])
-  ^:cljs (:require-macros
-           [p79.crdt.space.root-type :refer (defroottype)])
-  (:require [p79.crdt :as crdt]
-            [p79.crdt.map :as map]
+  (:require [p79.crdt.space.types :refer (entity)]
             [port79.hosty :refer (now current-time-ms)]
             [port79.uuid :refer (time-uuid random-uuid)]
             [clojure.set :as set]
             [clojure.walk :as walk]
-            [clojure.pprint :as pp]
-            ^:cljs [cljs.reader])
+            ^:clj [clojure.pprint :as pp])
+  ; this just forces the registration of data readers into
+  ; cljs.tagged-literals/*cljs-data-readers* that wouldn't
+  ; otherwise be available when compiling cljs statically
+  ^:cljs (:require-macros p79.crdt.space.types)
   (:refer-clojure :exclude (replicate)))
 
 (def unreplicated ::unreplicated)
 (def write-time ::write-time)
 (derive write-time unreplicated)
 
-^:clj (defroottype :clj Entity entity "entity" e string?)
-^:cljs (defroottype :cljs Entity entity "entity" e string?)
 ;; TODO not sure if this distinct reference type is worthwhile.
 ;; if the primary use case is referring to entities, then #entity "abcd" is
 ;; no worse than #ref #entity "abcd", right?  Even the generalized case of e.g.

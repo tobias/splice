@@ -1,9 +1,10 @@
-(ns p79.crdt.space.root-type)
+(ns p79.crdt.space.root-type
+  (:require cljs.compiler))
+
 
 (defmacro defroottype
   [lang type-name ctor-name type-tag value-name value-pred]
   (let [value-field (symbol (str ".-" value-name))
-        type-tag (str "#" type-tag " ")
         [arg arg2] [(gensym) (gensym)]
         [type-arg type-arg2] (map #(with-meta % {:tag type-name}) [arg arg2])]
     (if (= "clj" (name lang))
@@ -25,11 +26,15 @@
            (valAt [this# k#] (get ~value-name k#))
            (valAt [this# k# default#] (get ~value-name k# default#)))
          (defmethod print-method ~type-name [~type-arg ^java.io.Writer w#]
-           (.write w# ~type-tag)
+           (.write w# ~(str "#" type-tag " "))
            (print-method (~value-field ~type-arg) w#))
          (defmethod print-dup ~type-name [o# w#]
            (print-method o# w#))
-         (#'pp/use-method pp/simple-dispatch ~type-name #'pp/pprint-simple-default)
+         (require 'clojure.pprint)
+         (#'clojure.pprint/use-method
+           clojure.pprint/simple-dispatch
+           ~type-name
+           #'clojure.pprint/pprint-simple-default)
          (defn ~(symbol (str ctor-name "?"))
            ~(str "Returns true iff the sole argument is a " type-name)
            [x#]
@@ -44,7 +49,13 @@
                :else (throw
                        (IllegalArgumentException.
                          (str "Cannot create " ~type-name " with value of type "
-                           (type e#))))))))
+                           (type e#)))))))
+         (require 'cljs.tagged-literals)
+         (alter-var-root #'cljs.tagged-literals/*cljs-data-readers*
+           assoc '~(symbol type-tag) (fn [v#]
+                              {:pre [(~value-pred v#)]}
+                              (list '~(symbol (str (cljs.compiler/munge (str *ns* "." type-name)) ".")) v#)))
+         ~type-name)
       `(do
          (deftype ~type-name [~value-name]
            ~'IDeref
