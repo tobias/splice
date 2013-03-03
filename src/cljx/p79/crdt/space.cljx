@@ -182,61 +182,6 @@ a map of operation metadata, first converting it to tuples with `as-tuples`."
   [space {:keys [select planner args subs where] :as query} & arg-values]
   (q* space query arg-values))
 
-(defn- maybe-notify-write
-  [config change-fn watch-key space-ref old-space space]
-  (change-fn space))
-
-; TODO this is going to need to get asynchronous, fast
-(defn watch-changes
-  "Registers [fn] to be notified of writes to the space held in [space-ref]
-(an atom, agent, ref, var, etc) that match the query specified in [config].
-Returns the watch key used.
-
-Each write is sent as a sequence of tuples."
-  ([space-ref fn] (watch-changes space-ref nil fn))
-  ([space-ref
-    ; aping couchdb _changes args...
-    {:keys [watch-key since limit heartbeat timeout #_filter]
-     :or {}
-     :as config}
-    change-fn]
-    (let [config (update-in config [:watch-key] #(or % (keyword (gensym "watch-changes"))))]
-      (remove-watch space-ref (:watch-key config))
-      (add-watch space-ref (:watch-key config)
-        (partial maybe-notify-write config change-fn))
-      (:watch-key config))))
-
-(def replication-change-fn (comp
-                             ^:clj {clojure.lang.Atom swap!
-                                    clojure.lang.Agent send}
-                             ^:cljs {clojure.lang.Atom swap!}
-                             type))
-
-(defn write-change
-  [source-space]
-  (when-let [write (-> source-space meta ::last-write)]
-    (let [tuples (q source-space '{:select [?t]
-                                   :args [?write]
-                                   :where [[_ _ _ ?write :as ?t]]}
-                   write)]
-      ;; this ::last-write metadata isn't going to last long on this seq...
-      (with-meta (apply concat tuples) {::last-write write}))))
-
-(defn write*-to-reference
-  [target-space-reference write-tuples]
-  ((replication-change-fn target-space-reference)
-    target-space-reference write*
-    (-> write-tuples meta ::last-write)
-    (remove #(isa? (:a %) unreplicated) write-tuples)))
-
-^:clj
-(defn tuples->disk
-  [path write-tuples]
-  (with-open [w (clojure.java.io/writer path :append true)]
-    (doseq [t (map tuple->vector write-tuples)]
-      (.write w (pr-str t))
-      (.write w "\n"))))
-
 (deftype IndexBottom [])
 (deftype IndexTop [])
 (def index-bottom (IndexBottom.))

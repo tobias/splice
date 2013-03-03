@@ -90,7 +90,7 @@
                               [[_ _ ?k] (range (/ ?v 3) -1 -1)]]}
       
       ; whole-tuple selection
-      ;; can't use alias-namespaced keywords b/c of https://github.com/jonase/kibit/issues/14
+      ;; cljs doesn't support alias-namespaced keywords (and https://github.com/jonase/kibit/issues/14) 
       [[(s/coerce-tuple "y" :b "c" (-> space meta :p79.crdt.space/last-write) nil)]
        [(s/coerce-tuple "y" :b 6 (-> s2 meta :p79.crdt.space/last-write) nil)]]
       {:select [?t]
