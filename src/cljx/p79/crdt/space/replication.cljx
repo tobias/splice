@@ -39,6 +39,7 @@ Each write is sent as a sequence of tuples."
 (defn write-change
   [source-space]
   (when-let [write (-> source-space meta :p79.crdt.space/last-write)]
+    ;; TODO it's absurd that a query is mixed up in the middle of replication
     (let [tuples (q source-space (plan {:select [?t]
                                         :args [?write]
                                         :where [[_ _ _ ?write :as ?t]]})
