@@ -38,7 +38,9 @@ atoms are inserted, the precision required will grow without bound."
   ^:clj
   (hashCode [this] (inc (hash nums)))
   ^:clj
-  (equals [this x] (= nums (.-nums ^Rank x)))
+  (equals [this x]
+    (and (instance? Rank x)
+      (= nums (.-nums ^Rank x))))
   ^:cljs
   IComparable
   ^:cljs
@@ -56,14 +58,14 @@ atoms are inserted, the precision required will grow without bound."
   ^:cljs
   (-pr-writer [this w opts]
     (-write w "#p79.crdt.space.types.Rank")
-    (-pr-writer nums w opts)))
+    (-pr-writer [nums] w opts)))
 
 (defn rank? [x] (instance? Rank x))
 
 ^:clj
 (defmethod print-method Rank [^Rank x ^java.io.Writer w]
   (.write w (str "#" (.getName Rank)))
-  (print-method (.-nums x) w))
+  (print-method [(.-nums x)] w))
 ^:clj
 (defmethod print-dup Rank [o w] (print-method o w))
 ^:clj (require 'clojure.pprint)
@@ -74,7 +76,8 @@ atoms are inserted, the precision required will grow without bound."
   #'clojure.pprint/pprint-simple-default)
 
 (defn rank
-  [nums] (if (rank? nums) nums (Rank. nums)))
+  [nums]
+  (if (rank? nums) nums (Rank. nums)))
 
 ^:cljs
 (cljs.reader/register-tag-parser! 'p79.crdt.space.types.Rank rank)

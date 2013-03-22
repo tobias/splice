@@ -3,7 +3,7 @@
             [p79.math :as math]
             [cemerick.cljs.test :as t])
   ^:clj (:use clojure.test)
-  ^:cljs (:require-macros [cemerick.cljs.test :refer (deftest is)]))
+  ^:cljs (:require-macros [cemerick.cljs.test :refer (deftest is are)]))
 
 (def rank-compare ^:clj #'rank/rank-compare ^:cljs rank/rank-compare)
 
@@ -27,9 +27,16 @@
     1 [1 2 3] [1 2 3 -1]
     -1 [1 2 3] [1 2 3 1]))
 
+(deftest equality
+  (is (= (rank [1 2]) (rank [1 2])))
+  (is (not= (rank [1 2]) (rank [1 1])))
+  (is (not= (rank [1 2]) 5)))
+
 (deftest explicit-between
-  (is (thrown? ^:clj AssertionError ^:cljs js/Error (rank/between [] [])))
-  (is (thrown? ^:clj AssertionError ^:cljs js/Error (rank/between [1 2 3] [1 2 3])))
+  ^:cljs (is (thrown? js/Error (rank/between [] [])))
+  ^:clj (is (thrown? AssertionError (rank/between [] [])))
+  ^:cljs (is (thrown? js/Error (rank/between [1 2 3] [1 2 3])))
+  ^:clj (is (thrown? AssertionError (rank/between [1 2 3] [1 2 3])))
   (are [r1 r2 between] (and (= (rank/between r1 r2)
                               (rank/between r2 r1)
                               between)
