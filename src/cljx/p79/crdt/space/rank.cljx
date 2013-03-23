@@ -3,16 +3,10 @@
   ^:cljs (:require [p79.math :as math]
                    cljs.reader))
 
-#_(
-  ; Shapiro et al. say in "CRDTs: Consistency without concurrency control":
-  ; (http://arxiv.org/abs/0907.0929)
-  "The set of real numbers R is dense, but cannot be used for our purpose, because, as
-atoms are inserted, the precision required will grow without bound."
-  Formally true, but we don't need (and don't have in cljs) arbitrary-precision
-  decimals...just a greater degree of precision than we get from e.g. doubles
-  (which can only represent ~1000 (1074, actually) distinct positions between 0 and 1).
-  But, if we track the significand and the exponent separately (and do the math carefully),
-  then we can represent millions of positions between 0 and 1.)
+; This is a large N-way tree similar to the binary tree implementing a dense
+; ordered set described in Shapiro et al.
+; "CRDTs: Consistency without concurrency control" (http://arxiv.org/abs/0907.0929)
+; that should be shallow enough to remain efficient for all known use cases
 
 (defn- pad
   [x y]
@@ -61,6 +55,7 @@ atoms are inserted, the precision required will grow without bound."
     (-pr-writer [nums] w opts)))
 
 (defn rank? [x] (instance? Rank x))
+(defn- nums [rank] (.-nums ^Rank rank))
 
 ^:clj
 (defmethod print-method Rank [^Rank x ^java.io.Writer w]
@@ -82,14 +77,15 @@ atoms are inserted, the precision required will grow without bound."
 ^:cljs
 (cljs.reader/register-tag-parser! 'p79.crdt.space.types.Rank rank)
 
-(defn- between*
+(defn- mean
   [x y]
+  ; not just (/ (+ x y) 2.0) to minimize overflow
   (+ x (/ (- y x) 2.0)))
 
 (def LOW [(- math/MAX)])
 (def HIGH [math/MAX])
 
-(defn between
+(defn between*
   [nx ny]
   (let [c (rank-compare nx ny)]
     (assert (not (zero? c)) "Cannot generate rank between equivalent ranks")
@@ -97,15 +93,20 @@ atoms are inserted, the precision required will grow without bound."
       (loop [i 0]
         (let [x (nth nx i 0)
               y (nth ny i 0)]
-          (cond
-            (= x y) (recur (inc i))
-            ;(not x) (conj nx (between* 0 y))  ; [1 2] [1 3]
-            ;(not y) (conj ny (between* 0 x))
-            :default (let [z (between* x y)]
-                       (if (or (== z x) (== z y) (== z math/INF) (== z math/-INF))
-                         (conj nx 1)
-                         (conj (subvec nx 0 i) z)))))))))
+          (if (= x y)
+            (recur (inc i))
+            (let [z (mean x y)]
+              (if (or (== z x) (== z y) (== z math/INF) (== z math/-INF))
+                (conj nx 1)
+                (conj (subvec nx 0 i) z)))))))))
 
-(defn before [x] (between LOW x))
-(defn after [x] (between x HIGH))
+(defn before* [x] (between* LOW x))
+(defn after* [x] (between* x HIGH))
+
+(def before (comp rank before* nums))
+(def after (comp rank after* nums))
+
+(defn between
+  [rank1 rank2]
+  (rank (between (nums rank1) (nums rank2))))
 

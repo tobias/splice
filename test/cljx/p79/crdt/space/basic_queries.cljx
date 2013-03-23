@@ -2,6 +2,7 @@
   (:require [p79.crdt.space :as s :refer (write q)]
             [p79.crdt.space.types :refer (entity)]
             [p79.crdt.space.memory :refer (in-memory)]
+            [p79.crdt.space.rank :as rank]
             ^:clj [p79.crdt.space.memory.planning :refer (plan)]
             [port79.uuid :refer (time-uuid)]
             ^:clj [clojure.test :as t :refer :all]
@@ -206,18 +207,61 @@
             #entity "x")))))
 
 ; <p><em class="title" id="name">x</em><span>y</span></p>
-;; TODO ClojureScript has no BigDecimal, so we need a new plan re:
-;; safely ordering children via :html/rank, etc
-(def html {:html/element :p
-           :html/rank 0.5
-           :html/children #{{:html/element :em
-                             :html/rank 0.5
-                             :html/children #{{:html/attr :class :value "title"}
-                                              {:html/attr :id :value "name"}
-                                              {:html/text "x"}}}
-                            {:html/element :span
-                             :html/rank 0.75
-                             :html/children #{{:html/text "y"}}}}})
+(def html (s/assign-map-ids
+            {:html/element :p
+             :html/rank (rank/rank [])
+             :html/children #{{:html/element :em
+                               :html/rank (rank/rank (rank/before* []))
+                               :html/attrs #{[:class "title"]
+                                             [:id "name"]}                               :html/children {:html/text "x"}}
+                              {:html/element :span
+                               :html/attrs [:class "foo"]
+                               :html/rank (rank/rank (rank/after* []))
+                               :html/children {:html/text "y"}}}}))
+
+(deftest html-subqueries
+  (let [space (write (in-memory) [html])]
+    (is (= #{[:em] [:span] [:p]}
+          (q space
+            (plan {:select [?el]
+                   :args [?head]
+                   :subs {:walk {:select [?el]
+                                 :args [?head]
+                                 :where #{[[?head :html/element ?el]]
+                                          [[?head :html/children ?ch]
+                                           [[?el] (q :walk ?ch)]]}}}
+                   :where [[?e :html/element ?head]
+                           [[?el] (q :walk ?e)]]})
+            :p)
+          
+          ;; direct-recur
+          (q space
+            (plan {:select [?el]
+                   :args [?head]
+                   :where #{[[?head :html/element ?el]]
+                            [[?head :html/children ?ch]
+                             [[?el] (recur ?ch)]]}})
+            (entity (:db/id html)))))))
+
+(deftest html-attributes
+  (let [space (write (in-memory) [html])]
+    (are [results query] (= results (q space (plan query)))
+      #{[:span [:class "foo"]] [:em [:class "title"]]}
+      {:select [?el ?attr]
+       :args [?head]
+       :where #{[[?head :html/element ?el]
+                 [?head :html/attrs ?attr]
+                 (= :class (first ?attr))]
+                [[?head :html/children ?ch]
+                 [[?el ?attr] (recur ?ch)]]}}
+      
+      #{[:span [:class "foo"]] [:em [:id "name"]] [:em [:class "title"]]}
+      {:select [?el ?attr]
+       :args [?head]
+       :where #{[[?head :html/element ?el]
+                 [?head :html/attrs ?attr]]
+                [[?head :html/children ?ch]
+                 [[?el ?attr] (recur ?ch)]]}})))
 
 (deftest html-subqueries
   (let [m (s/assign-map-ids html)

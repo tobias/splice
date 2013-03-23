@@ -33,12 +33,12 @@
   (is (not= (rank [1 2]) 5)))
 
 (deftest explicit-between
-  ^:cljs (is (thrown? js/Error (rank/between [] [])))
-  ^:clj (is (thrown? AssertionError (rank/between [] [])))
-  ^:cljs (is (thrown? js/Error (rank/between [1 2 3] [1 2 3])))
-  ^:clj (is (thrown? AssertionError (rank/between [1 2 3] [1 2 3])))
-  (are [r1 r2 between] (and (= (rank/between r1 r2)
-                              (rank/between r2 r1)
+  ^:cljs (is (thrown? js/Error (rank/between* [] [])))
+  ^:clj (is (thrown? AssertionError (rank/between* [] [])))
+  ^:cljs (is (thrown? js/Error (rank/between* [1 2 3] [1 2 3])))
+  ^:clj (is (thrown? AssertionError (rank/between* [1 2 3] [1 2 3])))
+  (are [r1 r2 between] (and (= (rank/between* r1 r2)
+                              (rank/between* r2 r1)
                               between)
                          (let [[low high] (if (== -1 (rank-compare r1 r2))
                                             [r1 r2]
