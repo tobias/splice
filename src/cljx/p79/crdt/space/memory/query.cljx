@@ -30,16 +30,16 @@
 
 ;; as long as each index is complete, we can just keep covering indexes as
 ;; sorted sets (with comparators corresponding to the different sorts)
-(def ^:private index-types {[:e :a :v :write :remove] (index-comparator [:e :a :v :write :remove])
-                            [:a :e :v :write :remove] (index-comparator [:a :e :v :write :remove])
-                            [:a :v :e :write :remove] (index-comparator [:a :v :e :write :remove])
-                            [:write :a :e :v :remove] (index-comparator [:write :a :e :v :remove])
-                            [:v :a :e :write :remove] (index-comparator [:v :a :e :write :remove])})
+(def index-types {[:e :a :v :write :remove] (index-comparator [:e :a :v :write :remove])
+                  [:a :e :v :write :remove] (index-comparator [:a :e :v :write :remove])
+                  [:a :v :e :write :remove] (index-comparator [:a :v :e :write :remove])
+                  [:write :a :e :v :remove] (index-comparator [:write :a :e :v :remove])
+                  [:v :a :e :write :remove] (index-comparator [:v :a :e :write :remove])})
 
 (def available-indexes (-> index-types keys set))
 
 (def empty-indexes (into {} (for [[index-keys comparator] index-types]
-                                        [index-keys (sorted-set-by comparator)])))
+                              [index-keys (sorted-set-by comparator)])))
 
 (defn match-tuple
   [match-vector]

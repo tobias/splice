@@ -49,10 +49,15 @@
   ([] (time-uuid* (current-time-ms)))
   ([time] (uuid (bits->string time (rand-int max-long)))))
 
-(def time-uuid (comp str time-uuid*))
+(defn uuid-str
+  [uuid]
+  ^:clj (str uuid)
+  ^:cljs (.-uuid uuid))
+
+(def time-uuid (comp uuid-str time-uuid*))
 
 (defn ^:clj random-uuid* [] (java.util.UUID/randomUUID))
 (defn ^:cljs random-uuid* []
   (uuid (bits->string (rand-int max-long) (rand-int max-long))))
 
-(defn random-uuid [] (str (random-uuid*)))
+(def random-uuid (comp uuid-str random-uuid*))
