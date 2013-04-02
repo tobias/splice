@@ -97,7 +97,9 @@
             (recur (inc i))
             (let [z (mean x y)]
               (if (or (== z x) (== z y) (== z math/INF) (== z math/-INF))
-                (conj nx 1)
+                (if (nth nx i nil)
+                  (conj nx 1)
+                  (into nx [0 1]))
                 (conj (subvec nx 0 i) z)))))))))
 
 (defn before* [x] (between* LOW x))
