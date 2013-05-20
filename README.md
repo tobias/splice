@@ -398,7 +398,7 @@ another replica).
 2 | a  b  c
 3 | i  j  k
 
-[ts tag m #{1 A} x]
+[ts tag m [1 'A] x]
 [ts tag n :schema q]
 ```
 
@@ -438,7 +438,7 @@ Given a `[eid a]` pair (`[1 :tag]`), give me its value (`#{:p}`)
 
 ###### Entity attributes
 
-Given an `eid` (`1`), give me all of its attribute names (`#{:tag :children}).
+Given an `eid` (`1`), give me all of its attribute names (`#{:tag :children}`).
 
 ###### Entity lookup
 
@@ -461,6 +461,9 @@ Given an `eid` (`1`) and a set of keys to traverse (`#{:children}`), give me:
 
 ### Future considerations
 
+* "watcher" queries — return when a query matches something, done in real-time
+* reifying operations into tuples, e.g. compute the sum of value :x of entity
+  `a` and value :y of entity `b`, and put them _here_
 * optional consistency constraints
   * per-key
   * per-value-type
@@ -471,17 +474,33 @@ Given an `eid` (`1`) and a set of keys to traverse (`#{:children}`), give me:
 ### Storage backend notes
 
 Regardless of the backend(s) used, the _model_ has to be the same.  A port79
-instance running on riak should interoperate / replicate with another running
-on postgres, etc.
+instance running on riak should interoperate / replicate with another running on
+postgres or in the browser (IndexedDB!) or ..., all with **_identical query
+semantics_**.
+
+If something provides sorted storage for (index) tuples, we can use it.
+However, insofar as we're wanting to retain Clojure sorting semantics, we're in
+a position of trying to enforce those semantics on top of whatever storage we're
+using.  Sounds challenging.  We need something similar to
+[sext](https://github.com/uwiger/sext) for Clojure[Script?].  Hard bits there:
+
+* Numerics; largely addressed in [Rummage /
+  SimpleDB](https://github.com/cemerick/rummage/blob/master/src/main/java/cemerick/rummage/DataUtils.java)
+ * BigInteger/BigDecimal; _very_ hard.  Potential solution for integers may be
+   [here](http://www.xanthir.com/blog/b4K70) (though it only works for positive
+   ints as described)
+* Records generally, and also record types that have their own `Comparable`
+  implementation
+ * solution: don't support records as tuple values?!
 
 #### Options
 
-* postgres
+* postgresql
   * all the query you could ever need
   * fast and efficient
   * good hosting options
   * shardable and easily staffed if it becomes a long-term solution
-  * simply not distributed => high latency for anyone distant
+  * not readily distributed => high latency for anyone distant
 * Riak
   * Lots of potential here: multi-datacenter replication, 2i, lucene search,
     link walking, riak_pipe, riak CS for large binaries, more
@@ -490,17 +509,17 @@ on postgres, etc.
 * redis?
 * voldemort?
 * cassandra/hbase/...   — way too complicated to start with
+* dynamodb
+  * Has secondary indexes now!
 
 #### Unworkable
 
 * couchdb
   * impossible to produce even the most trivial of aggregates from views
     (largely due to `reduce_limit`, but the problem — an empty object is
-returned when e.g. 50 values are in a map — appears to occur even when that is
-set to false)
+    returned when e.g. 50 values are in a map — appears to occur even when that
+    is set to false)
   * json documents + always-HTTP => fat
-* dynamodb
-  * Can only query by primary key
 * mongo: gtfo
 * graph databases (e.g. neo4j, orient, etc) seem ill-suited; though we have
   references and such, and modeling graphs will be a primary use case:
@@ -512,6 +531,45 @@ set to false)
 * datomic
   * awesome, but enforces linearizability of _all_ operations; definitionally
     impossible to distribute or scale horizontally
+
+## Operational transforms (mentioned for contrast)
+
+…views content as fundamentally sequential, requires operations be linearized
+(via _transforming operations_ that arrive out-of-order causally so that the
+specified offsets correspond to the current state of the sequential data).
+Widely viewed as difficult to implement, test, and verify due to combinatorial
+explosion of operation interactions.  IIRC, this is part of the reason why e.g.
+Google Wave requires server acknowledgement of each operation prior to allowing
+clients to proceed, and why Google Docs is only available for offline use in
+Chrome + a custom extension: the interactions between the various OTs needed for
+even basic text editing are difficult to apply consistently at scale and over
+unreliable channels.
+
+Further reading:
+
+* [ShareJS](http://sharejs.org/), which implements some simple OTs, mostly for
+  textual manipulations (based on
+  [diff-match-patch](https://code.google.com/p/google-diff-match-patch/) by Neil
+  Frasier
+* [Differential Synchronization](http://neil.fraser.name/writing/sync/), an
+  overview of an architecture to apply things like diff-match-patch to a
+  larger-scale distributed application
+* [OT FAQ](http://www3.ntu.edu.sg/home/czsun/projects/otfaq/), an _extremely_
+  comprehensive research-oriented overview of OTs, their weaknesses, and
+  implementation strategies.
+* [Google Wave protocol](http://www.waveprotocol.org/) site, which includes a
+  number of documentation resources relating to Wave's design and implementation
+  specifics.  (The project is theoretically [part of Apache
+  now](http://incubator.apache.org/wave/), but its development there has also
+  appeared to stall [last update ~2011].)  Of particular interest are the
+  [protocol whitepapers](http://www.waveprotocol.org/protocol).
+* http://en.wikipedia.org/wiki/Operational_transformation, very nice
+  bibliography for even further reading, though its actual content is mostly a
+  poor summarization of the OT FAQ.
+
+(Wave had a ton of great ideas that are outside of the scope of OTs vs. CRDTs,
+including robots [autonomous processes that react to / generate changes in
+documents]. We need some of that.)
 
 ## ClojureScript suckage
 
