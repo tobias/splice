@@ -11,7 +11,11 @@
 (deftest in-memory-atoms
   (let [src (atom (in-memory))
         tgt (atom (in-memory))]
-    (rep/watch-changes src (comp (partial rep/write*-to-reference tgt) rep/write-change))
+    (rep/watch-changes src (comp (partial rep/write*-to-reference tgt)
+                                 rep/write-change
+                                 ; need some busywork so that the write time of
+                                 ; the replicated write is later
+                                 #(do (reduce + (range 1e5)) %)))
     (swap! src s/write [{:a 5 :db/id "foo"}])
     (let [query (plan {:select [?k ?v ?write ?write-time]
                        :where [["foo" ?k ?v ?write]
@@ -20,3 +24,4 @@
           [tr] (seq (q @tgt query))]
       (is (= (butlast sr) (butlast tr)))
       (is (pos? (compare (last tr) (last sr)))))))
+

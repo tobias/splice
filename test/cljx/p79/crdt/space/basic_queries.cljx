@@ -5,7 +5,7 @@
             [p79.crdt.space.rank :as rank]
             ^:clj [p79.crdt.space.memory.planning :refer (plan)]
             [port79.uuid :refer (time-uuid)]
-            ^:clj [clojure.test :as t :refer :all]
+            ^:clj [clojure.test :refer :all]
             ^:cljs [cemerick.cljs.test :as t])
   ^:cljs (:require-macros [p79.crdt.space.memory.planning :refer (plan)]
                           [cemerick.cljs.test :refer (deftest is are)]))
@@ -20,7 +20,7 @@
                                  [?e :a ?v]]}
       ; entity-position coercion
       [[:a] [:b]] {:select [?a]
-                   :where [["x" ?a]]}
+                   :where [["x" ?a]]} 
       
       [[:a]] {:select [?a]
               :where [["x" ?a 6]]}
