@@ -482,7 +482,9 @@ If something provides sorted storage for (index) tuples, we can use it.
 However, insofar as we're wanting to retain Clojure sorting semantics, we're in
 a position of trying to enforce those semantics on top of whatever storage we're
 using.  Sounds challenging.  We need something similar to
-[sext](https://github.com/uwiger/sext) for Clojure[Script?].  Hard bits there:
+[sext](https://github.com/uwiger/sext) or
+[bytewise](https://github.com/deanlandolt/bytewise) for Clojure[Script?].  Hard
+bits there:
 
 * Numerics; largely addressed in [Rummage /
   SimpleDB](https://github.com/cemerick/rummage/blob/master/src/main/java/cemerick/rummage/DataUtils.java)
@@ -492,6 +494,29 @@ using.  Sounds challenging.  We need something similar to
 * Records generally, and also record types that have their own `Comparable`
   implementation
  * solution: don't support records as tuple values?!
+
+AFAICT, there is no way to define a serialization for all numeric types that has
+a collation that matches the ordering of values of those types (e.g. ensure that
+the serialization of 1.0, 1.0M, 4/4, 1, and 1N [and for that matter, 1+0i, etc]
+collates to the same position relative to other values).  _However_, we don't
+need a total ordering across types:
+
+* the collation of different values actually doesn't matter at all if all we're
+  doing is _matching_ tuples exactly, likely with a wildcard (e.g. find all
+  tuples that match `[e a ?v]`).  All we need to do is find the exact matches of
+  `e` and `a` here; the sort order of the values found for `?v` is irrelevant.
+* Range queries/clauses (e.g. `[e a (< ?v 5)]` would benefit from a consistent
+  collation across types, but it's strictly unnecessary.  If we _did_ have a
+  consistent collation across types, then a single match lookup/scan would be
+  needed; however, without it, a match lookup/scan is needed for each compatible
+  type.  e.g. `(< ?v 5)` will need to scan for matches in longs, doubles,
+  bigdecs, and bigints.  Definitely a penalty, but still subexponential.
+
+Note that [IndexedDB only supports String keys, and likely will continue for
+some
+time](http://lists.w3.org/Archives/Public/public-webapps/2012AprJun/0816.html).
+Thus, any hope of an efficient sortable binary encoding is lost, at least for
+now.
 
 #### Options
 
