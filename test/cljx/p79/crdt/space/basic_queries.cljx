@@ -128,10 +128,11 @@
                                             [_ :b ?v]]})
                       string?)))))
 
+; TODO how is this working *AT ALL*?  
 (deftest composite-values
   (let [space (-> (in-memory)
                 (write [{:a [4 5 6] :b #{1 2 3} :db/id "x"}])
-                (write [{:c #{#{1 2 3}} :d #{7 8 9} :db/id "y"}]))]
+                (write [{:c #{[:j :k :i]} :d #{7 8 9} :e #{{:q :p}} :db/id "y"}]))]
     (are [result query] (= (set result) (set (q space (plan query))))
       [[1] [2] [3]] {:select [?v]
                      :where [[_ :b ?v]]}

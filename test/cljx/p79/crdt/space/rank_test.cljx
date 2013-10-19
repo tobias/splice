@@ -63,3 +63,40 @@
     [1 2] [1 1 1 1 2] [1 1.5]
     
     ))
+
+#_#_#_#_#_
+(def generated-cnt 1000)
+(def between-cnt 50)
+
+(deftest random-between-generation
+  (doseq [x (repeatedly generated-cnt rand)
+            :when (pos? x)
+            :let [seed (rank x)
+                  anchor (rand-nth [0 1])
+                  [comp-fn comparison-result] (if (> x anchor)
+                                                [rank/rank> 1]
+                                                [rank/rank< -1])
+                  anchor (rank anchor)
+                  ranks (take between-cnt (iterate (partial between anchor) seed))
+                  ranks (concat ranks [anchor])]]
+    (is (apply comp-fn ranks) [seed anchor comp-fn])
+    (doseq [pair (partition 2 1 ranks)]
+      (is (== comparison-result (apply compare pair)) pair))))
+
+(defn- random-double
+  "Generates a random double in the range [-1e-200 1e200]"
+  []
+  (* (rand) (Math/pow 10 (- (rand-int 400) 200))))
+
+(deftest comparisons
+  (doseq [numbers (->> (repeatedly random-double)
+                    (partition 2)
+                    (take generated-cnt))
+          :let [ranks (map rank numbers)
+                ncomp (apply compare numbers)]]
+    (is (= ncomp (apply compare ranks)) (str numbers ranks))
+    (let [comp-fn (cond
+                    (pos? ncomp) rank/rank>
+                    (neg? ncomp) rank/rank<
+                    :default =)]
+      (is (apply comp-fn ranks)))))

@@ -69,6 +69,13 @@
       pairs
       (recur (into pairs (map (fn [x2] [x x2]) xs)) xs))))
 
+(defn pairs2
+  [xs]
+  (->> (iterate rest xs)
+    (take-while seq)
+    (mapcat #(when-let [x (and (next %) (first %))]
+               (map (fn [y] [x y]) (rest %))))))
+
 (defn coerce-match-tuple
   "Given a match tuple, returns a new one with bound values coerced appropriately
 (e.g. values in entity position are turned into entity values, etc)."
