@@ -4,11 +4,11 @@
             [port79.uuid :refer (time-uuid random-uuid)]
             [clojure.set :as set]
             [clojure.walk :as walk]
-            ^:clj [clojure.pprint :as pp])
+            #+clj [clojure.pprint :as pp])
   ; this just forces the registration of data readers into
   ; cljs.tagged-literals/*cljs-data-readers* that wouldn't
   ; otherwise be available when compiling cljs statically
-  ^:cljs (:require-macros p79.crdt.space.types)
+  #+cljs (:require-macros p79.crdt.space.types)
   (:refer-clojure :exclude (replicate)))
 
 (def unreplicated ::unreplicated)
@@ -55,7 +55,7 @@ The 4-arg arity defaults [remove] to false."
 
 (defn throw-arg
   [& msg]
-  (throw (^:clj IllegalArgumentException. ^:cljs js/Error. (apply str msg))))
+  (throw (#+clj IllegalArgumentException. #+cljs js/Error. (apply str msg))))
 
 (defn- seq->tuples
   [ls]
@@ -90,17 +90,17 @@ The 4-arg arity defaults [remove] to false."
   nil
   (as-tuples [x] []))
 
-^:clj
+#+clj
 (extend java.util.List
   AsTuples
   {:as-tuples seq->tuples})
-^:clj
+#+clj
 (extend java.util.Map
   AsTuples
   {:as-tuples map->tuples})
 
 ;; die, clojurescript, die
-^:cljs
+#+cljs
 (extend-protocol AsTuples
   default
   (as-tuples [x]

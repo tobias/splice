@@ -1,7 +1,7 @@
 (ns p79.crdt.space.replication
   (:require [p79.crdt.space :as s :refer (q write* tuple->vector)]
-            ^:clj [p79.crdt.space.memory.planning :refer (plan)])
-  (:require-macros ^:cljs [p79.crdt.space.memory.planning :refer (plan)]))
+            #+clj [p79.crdt.space.memory.planning :refer (plan)])
+  #+cljs (:require-macros [p79.crdt.space.memory.planning :refer (plan)]))
 
 (defn- maybe-notify-write
   [config change-fn watch-key space-ref old-space space]
@@ -31,13 +31,13 @@ Each write is sent as a sequence of tuples."
         (partial maybe-notify-write config change-fn))
       (:watch-key config))))
 
-^:clj
+#+clj
 (def replication-change-fn (comp
                              {clojure.lang.Atom swap!
                               clojure.lang.Agent send}
                              type))
 
-^:cljs ; atoms are the only reference type available in cljs
+#+cljs ; atoms are the only reference type available in cljs
 (def replication-change-fn (fn [_] swap!))
 
 (defn write-change
@@ -58,7 +58,7 @@ Each write is sent as a sequence of tuples."
     (-> write-tuples meta :p79.crdt.space/last-write)
     (remove #(isa? (:a %) s/unreplicated) write-tuples)))
 
-^:clj
+#+clj
 (defn tuples->disk
   [path write-tuples]
   (with-open [w (clojure.java.io/writer path :append true)]

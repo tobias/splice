@@ -71,7 +71,6 @@
   clojure.lang.IObj
   (withMeta [this meta] (ObservedRemoveMap. entries meta)))
 
-^:clj
 (defmethod print-method ObservedRemoveMap
   [^ObservedRemoveMap o ^java.io.Writer w]
   (.write w "#")

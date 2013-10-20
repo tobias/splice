@@ -1,6 +1,6 @@
 (ns p79.crdt.space.memory.query
-  ^:clj (:require [p79.crdt.space.memory.indexing :refer (index-comparator)])
-  ^:cljs (:require-macros [p79.crdt.space.memory.indexing :refer (index-comparator)])
+  #+clj (:require [p79.crdt.space.memory.indexing :refer (index-comparator)])
+  #+cljs (:require-macros [p79.crdt.space.memory.indexing :refer (index-comparator)])
   (:require [p79.crdt.space :as s :refer (->Tuple index)]
             [p79.crdt.space.types :refer (entity)]
             [clojure.set :as set]))
@@ -76,17 +76,19 @@
     (mapcat #(when-let [x (and (next %) (first %))]
                (map (fn [y] [x y]) (rest %))))))
 
+(defn- coerce-match-tuple*
+  [x]
+  (cond
+   (variable? x) x
+   :default (entity x)))
+
 (defn coerce-match-tuple
   "Given a match tuple, returns a new one with bound values coerced appropriately
 (e.g. values in entity position are turned into entity values, etc)."
   [t]
   (-> t
-    (update-in [:e] #(cond
-                       (variable? %) %
-                       :default (entity %)))
-    (update-in [:write] #(cond
-                           (variable? %) %
-                           :else (entity %)))))
+    (update-in [:e] coerce-match-tuple*)
+    (update-in [:write] coerce-match-tuple*)))
 
 ; TODO eventually compile fns for each match-vector that use
 ; core.match for optimal filtering after index lookup
@@ -114,7 +116,7 @@
   (let [index (index space index-keys)
         ;; TODO this should *warn*, not throw, and just do a full scan
         _ (when (nil? index)
-            (throw (^:clj IllegalArgumentException. ^:cljs js/Error.
+            (throw (#+clj IllegalArgumentException. #+cljs js/Error.
                      (str "No index available for " match-vector))))
         binding-tuple (coerce-match-tuple (match-tuple binding-vector))
         match-tuple (coerce-match-tuple (match-tuple match-vector))

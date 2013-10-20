@@ -1,6 +1,6 @@
 (ns p79.crdt.space.memory
-  ^:clj (:require [p79.crdt.space.memory.planning :refer (plan plan* quote-symbols)])
-  ^:cljs (:require-macros [p79.crdt.space.memory.planning :refer (plan plan*)])
+  #+clj (:require [p79.crdt.space.memory.planning :refer (plan plan* quote-symbols)])
+  #+cljs (:require-macros [p79.crdt.space.memory.planning :refer (plan plan*)])
   (:require [p79.crdt.space :as s :refer (Space IndexedSpace)]
             [p79.crdt.space.memory.query :as q]
             [port79.hosty :refer (now)]
@@ -15,14 +15,14 @@
     (keys indexes)))
 
 (deftype MemSpace [indexes as-of metadata]
-  ^:clj clojure.lang.IMeta
-  ^:clj (meta [this] metadata)
-  ^:cljs IMeta
-  ^:cljs (-meta [this] metadata)
-  ^:clj clojure.lang.IObj
-  ^:clj (withMeta [this meta] (MemSpace. indexes as-of meta))
-  ^:cljs IWithMeta
-  ^:cljs (-with-meta [this meta] (MemSpace. indexes as-of meta))
+  #+clj clojure.lang.IMeta
+  #+clj (meta [this] metadata)
+  #+cljs IMeta
+  #+cljs (-meta [this] metadata)
+  #+clj clojure.lang.IObj
+  #+clj (withMeta [this meta] (MemSpace. indexes as-of meta))
+  #+cljs IWithMeta
+  #+cljs (-with-meta [this meta] (MemSpace. indexes as-of meta))
   Space
   (write* [this write-tag tuples]
     (let [tuples (cons (s/coerce-tuple write-tag s/write-time (now) write-tag) tuples)]
@@ -44,11 +44,11 @@
   [query]
   (if (-> query meta :planned)
     query
-    ^:clj (eval (quote-symbols (plan* query)))
+    #+clj (eval (quote-symbols (plan* query)))
     ;; TODO this isn't entirely true; as long as a query has no predicate
     ;; or function clauses, planning *can* be done at runtime in cljs.
     ;; Just need to refactor the planning bits to be able to apply that in practice
-    ^:cljs (throw (js/Error. "Cannot plan query at runtime in ClojureScript"))))
+    #+cljs (throw (js/Error. "Cannot plan query at runtime in ClojureScript"))))
 
 (extend-type MemSpace
   IndexedSpace

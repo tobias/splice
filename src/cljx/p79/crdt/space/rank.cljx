@@ -1,6 +1,6 @@
 (ns p79.crdt.space.rank
-  ^:clj (:require [p79.math :as math])
-  ^:cljs (:require [p79.math :as math]
+  #+clj (:require [p79.math :as math])
+  #+cljs (:require [p79.math :as math]
                    cljs.reader))
 
 ; This is a large N-way tree similar to the binary tree implementing a dense
@@ -21,35 +21,35 @@
     0))
 
 (deftype Rank [nums]
-  ^:clj
+  #+clj
   Comparable
-  ^:clj
+  #+clj
   (compareTo [this x] (rank-compare nums (.-nums ^Rank x)))
-  ^:clj
+  #+clj
   Object
-  ^:clj
+  #+clj
   (toString [x] (pr-str x))
-  ^:clj
+  #+clj
   (hashCode [this] (inc (hash nums)))
-  ^:clj
+  #+clj
   (equals [this x]
     (and (instance? Rank x)
       (= nums (.-nums ^Rank x))))
-  ^:cljs
+  #+cljs
   IComparable
-  ^:cljs
+  #+cljs
   (-compare [this x] (rank-compare nums (.-nums x)))
-  ^:cljs
+  #+cljs
   IHash
-  ^:cljs
+  #+cljs
   (-hash [this] (inc (hash nums)))
-  ^:cljs
+  #+cljs
   IEquiv
-  ^:cljs
+  #+cljs
   (-equiv [x y] (= nums (.-nums y)))
-  ^:cljs
+  #+cljs
   IPrintWithWriter
-  ^:cljs
+  #+cljs
   (-pr-writer [this w opts]
     (-write w "#p79.crdt.space.types.Rank")
     (-pr-writer [nums] w opts)))
@@ -57,14 +57,14 @@
 (defn rank? [x] (instance? Rank x))
 (defn- nums [rank] (.-nums ^Rank rank))
 
-^:clj
+#+clj
 (defmethod print-method Rank [^Rank x ^java.io.Writer w]
   (.write w (str "#" (.getName Rank)))
   (print-method [(.-nums x)] w))
-^:clj
+#+clj
 (defmethod print-dup Rank [o w] (print-method o w))
-^:clj (require 'clojure.pprint)
-^:clj
+#+clj (require 'clojure.pprint)
+#+clj
 (#'clojure.pprint/use-method
   clojure.pprint/simple-dispatch
   Rank
@@ -74,7 +74,7 @@
   [nums]
   (if (rank? nums) nums (Rank. nums)))
 
-^:cljs
+#+cljs
 (cljs.reader/register-tag-parser! 'p79.crdt.space.types.Rank rank)
 
 (defn- mean

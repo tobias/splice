@@ -3,11 +3,11 @@
             [p79.crdt.space.types :refer (entity)]
             [p79.crdt.space.memory :refer (in-memory)]
             [p79.crdt.space.rank :as rank]
-            ^:clj [p79.crdt.space.memory.planning :refer (plan)]
+            #+clj [p79.crdt.space.memory.planning :refer (plan)]
             [port79.uuid :refer (time-uuid)]
-            ^:clj [clojure.test :refer :all]
-            ^:cljs [cemerick.cljs.test :as t])
-  ^:cljs (:require-macros [p79.crdt.space.memory.planning :refer (plan)]
+            #+clj [clojure.test :refer :all]
+            #+cljs [cemerick.cljs.test :as t])
+  #+cljs (:require-macros [p79.crdt.space.memory.planning :refer (plan)]
                           [cemerick.cljs.test :refer (deftest is are)]))
 
 (deftest basic-queries
@@ -132,7 +132,7 @@
 (deftest composite-values
   (let [space (-> (in-memory)
                 (write [{:a [4 5 6] :b #{1 2 3} :db/id "x"}])
-                (write [{:c #{[:j :k :i]} :d #{7 8 9} :e #{{:q :p}} :db/id "y"}]))]
+                (write [{:c #{#{1 2 3}} :d #{7 8 9} :db/id "y"}]))]
     (are [result query] (= (set result) (set (q space (plan query))))
       [[1] [2] [3]] {:select [?v]
                      :where [[_ :b ?v]]}

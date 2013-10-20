@@ -5,10 +5,10 @@
             [p79.crdt.space.replication :as rep]
             [p79.crdt.space.memory :refer (in-memory)]
             [p79.crdt.space.memory.query :refer (index-types)]
-            ^:clj [p79.crdt.space.memory.planning :refer (plan)]
-            ^:cljs cemerick.cljs.dom
-            ^:cljs [goog.dom :as dom])
-  ^:cljs (:require-macros [p79.crdt.space.memory.planning :refer (plan)]
+            #+clj [p79.crdt.space.memory.planning :refer (plan)]
+            #+cljs cemerick.cljs.dom
+            #+cljs [goog.dom :as dom])
+  #+cljs (:require-macros [p79.crdt.space.memory.planning :refer (plan)]
                           ; something jacked up in cljx that requires this?
                           [clojure.core :refer (some->)]))
 
@@ -83,11 +83,13 @@
                      (s/as-tuples entity))])
 
 #_ ; TODO
-(defn ^:clj ->strings
+#+clj
+(defn ->strings
   "Returns a lazy seq of strings for [graph] starting at [root]"
   [root graph])
 
-(defn- ^:cljs create-element
+#+cljs
+(defn- create-element
   [tuples]
   (-> (filter (comp #{:html/element} :a) tuples)
     first
@@ -97,7 +99,8 @@
     dom/createElement
     (doto (dom/setProperties (clj->js {"id" (-> tuples first :e deref)})))))
 
-(defn- ^:cljs update-element
+#+cljs
+(defn- update-element
   [{:keys [elt tuples]}]
   (doseq [{:keys [a v]} tuples]
     (case a
@@ -117,7 +120,8 @@
                    [?sibling :html/rank ?rank]]})
     child-e))
 
-(defn- ^:cljs place-elements
+#+cljs
+(defn- place-elements
   [space elements+tuples]
   ;; TODO hyper-temporary
   (dom/setProperties (first (dom/$$ "body")) (clj->js {"contentEditable" "true"}))
@@ -145,7 +149,8 @@
                     (conj placed? eid))))]
     (reduce place #{} elements+tuples)))
 
-(defn ^:cljs tuples->DOM
+#+cljs
+(defn tuples->DOM
   "Deposits [tuples] (presumed to all be from one write) into the given browser
 [dom] using [space] to lookup relative ranks, etc."
   [tuples space]
@@ -161,16 +166,19 @@
     (into {})
     (place-elements space)))
 
-(defn ^:cljs ->DOM
+#+cljs
+(defn ->DOM
   "Deposits [graph] starting at [root] into the given browser [element]"
   [element root graph]
   )
 
-(defn ^:cljs element->graph
+#+cljs
+(defn element->graph
   "Returns a graph rooted at the given browser [element]"
   [element])
 
-(defn ^:cljs join
+#+cljs
+(defn join
   [write]
   (tuples->DOM write (swap! local-replica s/write write)))
 

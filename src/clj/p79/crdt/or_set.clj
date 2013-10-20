@@ -25,8 +25,8 @@
   
   ; only need to be instanceof Set to make equality work
   ; can't forsee a reason to implement more of the interface
-  ^:clj java.lang.Iterable
-  ^:clj (iterator [this] (.iterator (seq this)))
+  java.lang.Iterable
+  (iterator [this] (.iterator (seq this)))
   
   clojure.lang.IPersistentSet
   (contains [this v]
@@ -49,7 +49,6 @@
   clojure.lang.IObj
   (withMeta [this meta] (ObservedRemoveSet. adds removes meta)))
 
-^:clj
 (defmethod print-method ObservedRemoveSet
   [^ObservedRemoveSet o ^java.io.Writer w]
   (.write w "#")

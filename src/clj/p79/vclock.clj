@@ -9,8 +9,8 @@
 ; https://github.com/voldemort/voldemort/blob/master/src/java/voldemort/versioning/VectorClock.java
 ; https://github.com/michaelklishin/vclock
 
-(defn- ^:clj uuid [] (java.util.UUID/randomUUID))
-;(defn- ^:cljs uuid [] (UUID.))
+(defn- uuid [] (java.util.UUID/randomUUID))
+;#+cljs (defn- uuid [] (UUID.))
 
 (defonce ^:dynamic nodename (uuid))
 (defonce ^:private counter (atom 0))

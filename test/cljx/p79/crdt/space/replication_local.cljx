@@ -2,11 +2,11 @@
   (:require [p79.crdt.space :as s :refer (write q)]
             [p79.crdt.space.replication :as rep]
             [p79.crdt.space.memory :as mem :refer (in-memory)]
-            ^:clj [p79.crdt.space.memory.planning :refer (plan)]
-            ^:cljs [cemerick.cljs.test :as t])
-  ^:cljs (:require-macros [p79.crdt.space.memory.planning :refer (plan)]
+            #+clj [p79.crdt.space.memory.planning :refer (plan)]
+            #+cljs [cemerick.cljs.test :as t])
+  #+cljs (:require-macros [p79.crdt.space.memory.planning :refer (plan)]
                           [cemerick.cljs.test :refer (deftest is are)])
-  ^:clj (:use clojure.test))
+  #+clj (:use clojure.test))
 
 (deftest in-memory-atoms
   (let [src (atom (in-memory))

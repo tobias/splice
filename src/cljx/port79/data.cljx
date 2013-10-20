@@ -77,32 +77,36 @@ a cardinality >= 2."
 (defprotocol Text
   (-text [this]))
 
-^:clj
+#+clj
 (extend-protocol Element
   clojure.lang.IPersistentMap
   (-tag [this] (-> this :tag name))
   (-attrs [this] (:attrs this))
   (-content [this] (:content this)))
-^:clj
+
+#+clj
 (extend-protocol Text
   String
   (-text [this] this))
 
-^:cljs
+#+cljs
 (extend-protocol Element
   js/Element
   (-tag [this] (.-tagName this))
   (-attrs [this] (into {} (.-attributes this)))
   (-content [this] (.-childNodes this)))
-^:cljs
+
+#+cljs
 (extend-protocol Text
   js/Text
   (-text [this] (.-wholeText this))
   js/String
   (-text [this] this))
 
-(defn- ^:clj attribute? [x] (instance? clojure.lang.IMapEntry x))
-(defn- ^:cljs attribute? [x] (satisfies? IMapEntry x))
+#+clj
+(defn- attribute? [x] (instance? clojure.lang.IMapEntry x))
+#+cljs
+(defn- attribute? [x] (satisfies? IMapEntry x))
 
 (defn tagname [x] (str/lower-case (-tag x)))
 
@@ -117,8 +121,8 @@ a cardinality >= 2."
 
 (defn- integer
   [x]
-  ^:clj (Long/parseLong x)
-  ^:cljs (js/parseInt x))
+  #+clj (Long/parseLong x)
+  #+cljs (js/parseInt x))
 
 #_
 (defn html->entities

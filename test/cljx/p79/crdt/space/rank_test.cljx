@@ -2,10 +2,10 @@
   (:require [p79.crdt.space.rank :refer (rank between) :as rank]
             [p79.math :as math]
             [cemerick.cljs.test :as t])
-  ^:clj (:use clojure.test)
-  ^:cljs (:require-macros [cemerick.cljs.test :refer (deftest is are)]))
+  #+clj (:use clojure.test)
+  #+cljs (:require-macros [cemerick.cljs.test :refer (deftest is are)]))
 
-(def rank-compare ^:clj #'rank/rank-compare ^:cljs rank/rank-compare)
+(def rank-compare #+clj #'rank/rank-compare #+cljs rank/rank-compare)
 
 (deftest definitional
   (are [compare-result r1 r2] (and (== compare-result (rank-compare r1 r2))
@@ -33,10 +33,10 @@
   (is (not= (rank [1 2]) 5)))
 
 (deftest explicit-between
-  ^:cljs (is (thrown? js/Error (rank/between* [] [])))
-  ^:clj (is (thrown? AssertionError (rank/between* [] [])))
-  ^:cljs (is (thrown? js/Error (rank/between* [1 2 3] [1 2 3])))
-  ^:clj (is (thrown? AssertionError (rank/between* [1 2 3] [1 2 3])))
+  #+cljs (is (thrown? js/Error (rank/between* [] [])))
+  #+clj (is (thrown? AssertionError (rank/between* [] [])))
+  #+cljs (is (thrown? js/Error (rank/between* [1 2 3] [1 2 3])))
+  #+clj (is (thrown? AssertionError (rank/between* [1 2 3] [1 2 3])))
   (are [r1 r2 between] (and (= (rank/between* r1 r2)
                               (rank/between* r2 r1)
                               between)

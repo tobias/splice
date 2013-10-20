@@ -1,26 +1,32 @@
 (ns port79.uuid
   (:require [port79.hosty :refer (now current-time-ms)]))
 
-(defn ^:clj uuid? [x] (instance? java.util.UUID x))
-(defn ^:cljs uuid? [x] (instance? cljs.core.UUID x))
+#+clj
+(defn uuid? [x] (instance? java.util.UUID x))
+#+cljs
+(defn uuid? [x] (instance? cljs.core.UUID x))
 
 ;; would go look at the default readers to get the fn that's used to 
 ;; read uuid string literals, but that's `default-data-readers` in Clojure
 ;; (keyed by symbols) and `*tag-table*` in ClojureScript (keyed by strings)!!!
-(defn ^:clj uuid
+#+clj
+(defn uuid
   [string]
   (if (uuid? string)
     string
     (java.util.UUID/fromString string)))
 
-(defn ^:cljs uuid
+#+cljs
+(defn uuid
   [string]
   (if (uuid? string)
     string
     (cljs.core.UUID. string)))
 
-(def ^:clj ^:private rng (java.security.SecureRandom.))
-(defn ^:clj time-uuid*
+#+clj
+(def ^:private rng (java.security.SecureRandom.))
+#+clj
+(defn time-uuid*
   "Returns a sequential UUID. Guaranteed to:
 
 (a) monotonically increase when printed lexicographically
@@ -28,14 +34,16 @@
   ([] (time-uuid* (current-time-ms)))
   ([time] (java.util.UUID. time (.nextLong rng))))
 
-(defn- ^:cljs hex-pad
+#+cljs
+(defn- hex-pad
   [n len]
   (let [s (.toString n 16)
         diff (- len (count s))
         pad (when (pos? diff) (apply str (repeat diff "0")))]
     (str pad s)))
 
-(defn- ^:cljs bits->string
+#+cljs
+(defn- bits->string
   [high low]
   (let [high (re-seq #"(.{8})(.{4})(.{4})" (hex-pad high 16))
         low (re-seq #"(.{4})(.{12})" (hex-pad low 16))]
@@ -44,20 +52,24 @@
       (interpose "-")
       (apply str))))
 
-(def ^:cljs max-long 9223372036854775807)
-(defn ^:cljs time-uuid*
+#+cljs
+(def max-long 9223372036854775807)
+#+cljs
+(defn time-uuid*
   ([] (time-uuid* (current-time-ms)))
   ([time] (uuid (bits->string time (rand-int max-long)))))
 
 (defn uuid-str
   [uuid]
-  ^:clj (str uuid)
-  ^:cljs (.-uuid uuid))
+  #+clj (str uuid)
+  #+cljs (.-uuid uuid))
 
 (def time-uuid (comp uuid-str time-uuid*))
 
-(defn ^:clj random-uuid* [] (java.util.UUID/randomUUID))
-(defn ^:cljs random-uuid* []
+#+clj
+(defn random-uuid* [] (java.util.UUID/randomUUID))
+#+cljs
+(defn random-uuid* []
   (uuid (bits->string (rand-int max-long) (rand-int max-long))))
 
 (def random-uuid (comp uuid-str random-uuid*))
