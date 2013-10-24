@@ -65,10 +65,6 @@ The 4-arg arity defaults [remove] to false."
 
 (defn- map->tuples
   [m]
-  ;; if Tuple ever loses its inline impl of as-tuples, we *must*
-  ;; rewrite this to dynamically extend AsTuples to concrete Map
-  ;; types; otherwise, there's no way to prefer an extension to
-  ;; Tuple over one to java.util.Map
   (if-let [[_ e] (find m :db/id)]
     (let [time (:db/time m)
           s (seq (dissoc m :db/id))]
@@ -90,31 +86,24 @@ The 4-arg arity defaults [remove] to false."
   nil
   (as-tuples [x] []))
 
-#+clj
-(extend java.util.List
-  AsTuples
-  {:as-tuples seq->tuples})
-#+clj
-(extend java.util.Map
-  AsTuples
-  {:as-tuples map->tuples})
-
-;; die, clojurescript, die
-#+cljs
 (extend-protocol AsTuples
-  default
+  #+clj Object #+cljs default
   (as-tuples [x]
     (let [type (type x)
           extended? (cond
-                      (satisfies? ISequential x)
-                      (extend-protocol AsTuples
-                        type
+                      (sequential? x)
+                      ; Clojure won't eval a symbol provided to `extend-type` et al.,
+                      ; must be a list/seq TODO file an issue/patch for that
+                      (extend-type #+clj (identity type) #+cljs type
+                        AsTuples
                         (as-tuples [x] (seq->tuples x)))
-                      (satisfies? IMap x)
-                      (extend-protocol AsTuples
-                        type
-                        (as-tuples [x] (map->tuples x))))]
-      (if extended?
+                      (map? x)
+                      (extend-type #+clj (identity type) #+cljs type
+                        AsTuples
+                        (as-tuples [x] (map->tuples x)))
+                      ; extend-type returns different values in different languages (nil in Clojure)
+                      :else false)]
+      (if-not (false? extended?)
         (as-tuples x)
         (throw-arg "No implementation of AsTuples available for " type)))))
 
