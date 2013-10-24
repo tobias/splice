@@ -1,3 +1,4 @@
+;; not used, result of early experimentation
 (ns p79.crdt.map
   (:refer-clojure :exclude (remove)))
 

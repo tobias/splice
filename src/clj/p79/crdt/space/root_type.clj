@@ -2,6 +2,7 @@
   (:require cljs.compiler))
 
 
+; TODO use cemerick.cljs.macro/defportable here to collapse this into a single deftype
 (defmacro defroottype
   [lang type-name ctor-name type-tag value-name value-pred]
   (let [value-field (symbol (str ".-" value-name))

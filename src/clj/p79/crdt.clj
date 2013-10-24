@@ -1,3 +1,5 @@
+;; none of the protocols here are relevant to current/future plans, all presume
+;; a fundamental op/state dichotomy that I'm convinced doesn't apply
 (ns p79.crdt)
 
 (defprotocol CvRDT

@@ -1,3 +1,4 @@
+;; not used, result of early experimentation
 (ns p79.crdt.or-map
   (:require [p79.crdt :as crdt]
             [p79.crdt.map :as map]

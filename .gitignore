@@ -32,3 +32,4 @@ pom.xml*
 .lein-env
 
 .repl
+.nrepl-port

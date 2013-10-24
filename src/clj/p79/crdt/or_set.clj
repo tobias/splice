@@ -1,3 +1,4 @@
+;; not used, result of early experimentation
 (ns p79.crdt.or-set
   (:require [p79.crdt :as crdt]
             [p79.crdt.set :as cset]
