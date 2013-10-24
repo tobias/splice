@@ -1,31 +1,18 @@
 (ns port79.hosty)
 
-#+clj
+
 (defn system-hash
   [x]
-  (System/identityHashCode x))
+  #+clj (System/identityHashCode x)
+  #+cljs (goog/getUid x))
 
-#+cljs
-(defn system-hash
-  [x]
-  (goog/getUid x))
-
-#+clj
 (defn current-time-ms
   []
-  (System/currentTimeMillis))
+  #+clj (System/currentTimeMillis)
+  #+cljs (.now js/Date))
 
-#+cljs
-(defn current-time-ms
-  []
-  (.now js/Date))
-
-#+clj
 (defn now
   []
-  (java.util.Date.))
+  #+clj (java.util.Date.)
+  #+cljs (js/Date.))
 
-#+cljs
-(defn now
-  []
-  (js/Date.))
