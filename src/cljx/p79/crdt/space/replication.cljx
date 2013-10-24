@@ -22,10 +22,7 @@ Each write is sent as a sequence of tuples."
      :as config}
     change-fn]
     (let [config (update-in config [:watch-key]
-                            ; only using name here until
-                            ; http://dev.clojure.org/jira/browse/CLJS-517 is
-                            ; fixed
-                            #(or % (keyword (name (gensym "watch-changes")))))]
+                            #(or % (keyword (gensym "watch-changes"))))]
       (remove-watch space-ref (:watch-key config))
       (add-watch space-ref (:watch-key config)
         (partial maybe-notify-write config change-fn))
