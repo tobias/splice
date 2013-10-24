@@ -44,7 +44,7 @@ This fn should therefore always be used in preference to the Tuple. ctor.
 The 4-arg arity defaults [remove] to false."
   ([e a v write] (coerce-tuple e a v write false))
   ([e a v write remove]
-    (Tuple. (entity e) a v (entity write) (entity remove))))
+     (Tuple. (entity e) a v (entity write) (entity remove))))
 
 (let [tuple->vector* (juxt :e :a :v :write)]
   (defn tuple->vector
@@ -59,8 +59,8 @@ The 4-arg arity defaults [remove] to false."
 
 (defn- seq->tuples
   [ls]
-  (if (or (== 4 (count ls)) (== 5 (count ls)))
-    [(apply coerce-tuple ls)]
+  (case (count ls)
+    (4 5) [(apply coerce-tuple ls)]
     (throw-arg "Vector/list cannot be tuple-ized, bad size: " (count ls))))
 
 (defn- map->tuples
@@ -117,21 +117,6 @@ The 4-arg arity defaults [remove] to false."
   #_
   (as-of [this] [this time]
          "Returns a new space restricted to tuples written prior to [time]."))
-
-; TODO how to control policy around which writes need to be replicated?
-; probably going to require query on the destination in order to determine workset
-#_(defn update-write-meta
-  [space written-tuples]
-  (let [last-replicated-write (-> space meta ::replication :lwr)
-        writes (set (map :write written-tuples))
-        out-of-order-writes (when last-replicated-write
-                              (set/union
-                                (set/select #(neg? (compare % last-replicated-write)))
-                                (or (-> space meta ::replication :ooow) #{})))]
-    (vary-meta space merge
-      {::writes writes
-       ::replication {:lwr last-replicated-write
-                      :ooow out-of-order-writes}})))
 
 (defn update-write-meta
   [space write-tag]
