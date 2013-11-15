@@ -28,12 +28,7 @@
     (let [tuples (cons (s/coerce-tuple write-tag s/write-time (now) write-tag) tuples)]
       (MemSpace.
         (add-tuples indexes tuples)
-        as-of metadata)))
-  #_
-  (as-of
-    ([this] as-of)
-    ([this time]
-      (MemSpace. (.-indexes this) time (.-metadata this)))))
+        as-of metadata))))
 
 (defn in-memory
   ([] (MemSpace. q/empty-indexes nil {}))

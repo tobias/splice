@@ -15,6 +15,8 @@
     (= s/index-top x2) -1
     ;; all we're doing here is stratifying values of different types, then
     ;; ordering as with compare for each grouping
+    ;; TODO we should be using sedan for all comparisons (whether in-memory or not?
+    ;;   at least for the type comparisons, anyway)
     :else (let [t1 (type x)
                 t2 (type x2)]
             (if (identical? t1 t2)
@@ -115,6 +117,8 @@
   [space index-keys match-vector binding-vector whole-tuple-binding]
   (let [index (index space index-keys)
         ;; TODO this should *warn*, not throw, and just do a full scan
+        ;; TODO further, if we know at query-compile-time what indexes are
+        ;; available (do we?), then we can warn/fail at that point, not here
         _ (when (nil? index)
             (throw (#+clj IllegalArgumentException. #+cljs js/Error.
                      (str "No index available for " match-vector))))

@@ -2,9 +2,19 @@
   (:require [p79.crdt.space :as s :refer (write q)]
             [p79.crdt.space.replication :as rep]
             [p79.crdt.space.memory :as mem :refer (in-memory)]
-            [p79.read :refer (read-seq)]
+            [clojure.java.io :as io]
             [port79.uuid :refer (random-uuid)])
   (:use clojure.test))
+
+(defn- read-seq
+  [source]
+  (letfn [(value-seq [stream]
+            (lazy-seq
+              (binding [*read-eval* false]
+                (if-let [x (read stream false nil)]
+                  (cons x (value-seq stream))
+                  (.close stream)))))]
+    (value-seq (java.io.PushbackReader. (io/reader source)))))
 
 (deftest in-memory-agent
   (let [src (agent (in-memory))

@@ -1,3 +1,4 @@
+;; not used, result of early experimentation
 (ns p79.vclock
   (:require [clojure.set :as set])
   (:refer-clojure :exclude (time)))
