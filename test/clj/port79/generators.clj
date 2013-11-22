@@ -1,11 +1,12 @@
 (ns port79.generators
-  (:require [clojure.test.generative.generators :as gens]
-            [clojure.test.generative :as gen]
+  (:require ;[clojure.test.generative.generators :as gens]
+            ;[clojure.test.generative :as gen]
             [clojure.stacktrace :refer (print-cause-trace)])
   (:use clojure.test)
   (:refer-clojure :exclude (char)))
 
-(defn- bind-generative-test-period
+(comment
+  (defn- bind-generative-test-period
   [f]
   (with-redefs [gen/*msec* 5000] (f)))
 
@@ -107,4 +108,4 @@
              (if (zero? depth)
                #(value scalar-type)
                #(value scalar-type (partial nested-entity* scalar-type (dec depth) size)))
-             size)))
+             size))))
