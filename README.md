@@ -1,4 +1,4 @@
-# crdt
+# splice
 
 CRDTs for port79.
 

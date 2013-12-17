@@ -1,4 +1,4 @@
-(defproject port79/crdt "0.0.1-SNAPSHOT"
+(defproject com.cemerick/splice "0.0.1-SNAPSHOT"
   :description ""
   :url ""
   :license "proprietary"
