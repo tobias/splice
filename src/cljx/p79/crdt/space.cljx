@@ -15,17 +15,6 @@
 (def write-time ::write-time)
 (derive write-time unreplicated)
 
-;; TODO not sure if this distinct reference type is worthwhile.
-;; if the primary use case is referring to entities, then #entity "abcd" is
-;; no worse than #ref #entity "abcd", right?  Even the generalized case of e.g.
-;; #ref #s3 "https://..." doesn't provide much (any?) semantic benefit.
-;(defroottype Ref reference "ref" e entity?)
-;(defroottype Tag tag "tag" t entity?)
-
-;; TODO don't quite like the e/a/v naming here
-;; s/p/o is used in RDF, but might be too much of a tie to semweb
-;; [element datum state]? :-P
-
 (defn metadata? [tuple] (= (:e tuple) (:write tuple)))
 
 (defprotocol AsTuples

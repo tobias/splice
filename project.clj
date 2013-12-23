@@ -6,7 +6,7 @@
   :source-paths ["src/clj" "src/cljs"]
   :test-paths ["test/cljx" "test/cljs" "test/clj" "target/test-classes"]
   :min-lein-version "2.0.0"
-  :dependencies [[org.clojure/clojure "1.6.0-alpha1"]
+  :dependencies [[org.clojure/clojure "1.6.0-alpha3"]
                  [org.clojure/core.match "0.2.0"]
                  [org.clojure/core.incubator "0.1.1"]
                  [org.clojure/math.combinatorics "0.0.4"]
@@ -39,7 +39,7 @@
   
   :profiles {:dev {:dependencies [[com.cemerick/pomegranate "0.0.13"
                                    :exclusions [org.apache.httpcomponents/httpcore]]
-                                  [org.clojure/clojurescript "0.0-2067"]]
+                                  [org.clojure/clojurescript "0.0-2127"]]
                    :plugins [[lein-cljsbuild "1.0.0-alpha2"]
                              [com.cemerick/clojurescript.test "0.2.1"]
                              [com.cemerick/austin "0.1.3"]
