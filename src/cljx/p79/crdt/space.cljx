@@ -90,7 +90,8 @@ The 4-arg arity defaults [remove] to false."
                       (extend-type #+clj (identity type) #+cljs type
                         AsTuples
                         (as-tuples [x] (map->tuples x)))
-                      ; extend-type returns different values in different languages (nil in Clojure)
+                      ; extend-type returns different values in different
+                      ; languages (nil in Clojure)
                       :else false)]
       (if-not (false? extended?)
         (as-tuples x)
@@ -133,6 +134,9 @@ a map of operation metadata, first converting it to tuples with `as-tuples`."
       (-> this
         (write* write tuples)
         (update-write-meta write)))))
+
+; TODO is there ever any reason to distinguish between a Space and an
+; IndexedSpace? What's the gd point if the tuplespace isn't indexed?
 
 (defprotocol IndexedSpace
   ;; TODO a good idea, but not compatible with compile-time query planning
