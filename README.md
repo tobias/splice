@@ -1,16 +1,595 @@
 # splice
 
-CRDTs for port79.
+Like the elephant, Splice is many things, depending on where you touch it:
 
-## Observed-Remove MultiMap
+* an Observed-Remove multimap CRDT that presents / implements query facilities
+  via a datalog, supporting storage via ... (more to come, contributions
+  welcome)
+* a masterless, distributed database
+* a medium for reifying operations into computable values that may be
+  immediately replicated over arbitrary topologies and mechanisms to satisfy the
+  communication requirements of globally distributed computational applications.
 
-### "Specification"
+This is the _reference implementation_ of Splice, written in portable Clojure /
+ClojureScript.
+
+## Data model
+
+Splice is designed to support many different shapes of data, corresponding to
+datatypes that you may be familiar with in various programming languages:
+
+* maps (a.k.a. hashes)
+* sets
+* graphs
+* tables / matrices
+* sequences
+
+All of these are modeled in terms of _entities_. Entities are multimaps, each of
+which is identified by a _globally-unique_ identifier, called an _eid_.
+
+At the lowest level, each attribute/value entry in each entity is encoded as a
+_tuple_, the base unit of data in Splice:
+
+```
+[eid attribute value write tid [remove-write remove-tid]]
+```
+
+The first five components of Splice tuples in the vector representation are
+mandatory; others are optional:
+
+* `eid` is the _globally-unique_ identifier of an entity, i.e. UUIDs.
+* `attribute` is an entry key that identifies a particular pair within an
+  entity.  Attributes may be any scalar or sequence containing scalars, though
+  the most common attributes are keywords.
+* `value` may be any scalar, including references.  `nil` is not allowed, except
+  in the case of remove tuples; see ["Removals"](#removals) for details.
+* `write` is an eid, an implicit reference to the entity that represents the
+  write of which a given tuple was a part: tuples may only be added as part of a
+  write, which may contain many tuples, and which is the unit of replication and
+  distribution.  Each write entity carries metadata about the write.
+* `tid` is a scalar unique among all other `tid`s of tuples included in the
+  noted write.
+* Optional components:
+  * When present, `remove-write` and `remove-tid` must match an
+    existing tuple's `write` and `tid` components.  This correspondence
+    indicates the removal of the
+    attribute/value entry represented by the matching tuple.  See
+    ["Removals"](#removals) for details.
+
+(Note that throughout this document, eids are represented as keywords prefixed
+with `e` or `w`
+[indicating whether the eid in question names a write entity or a "regular" entity],
+just for the sake of readability.)
+
+Splice tuples may be represented as a vector or as a map:
+
+```
+[:e83 :name "Splice" :w55 1]
+```
+
+is the same as:
+
+```
+{:eid :e83
+ :a :name
+ :v "Splice"
+ :write :w55
+ :tid 1}
+```
+
+The latter is somewhat friendlier to the human eye, especially when many of the
+optional slots are populated; the former is simply a defined total ordering of
+the attributes of a tuple.  When represented as a map, any undefined optional
+components of a tuple are presumed to be `nil`; when represented as a vector,
+undefined components must be explicitly included as `nil` as necessary in order
+to maintain the positions of other defined components in the vector.
+
+### Identification
+
+Tuples may be uniquely identified in two ways:
+
+* by the combination of their `eid`, `attribute`, `value`, and `write`
+  components
+* by the combination of their `write` and `tid` components
+
+The latter (and specifically, the `tid` component) exists solely to support
+[removals](#removals) efficiently with regard to replication; the former is more
+properly the "natural identifier" of each tuple.
+
+### Attributes
+
+Attributes are generally keywords, though there are legitimate uses for numbers
+and vectors of both, too.
+
+Re: keywords, need to define:
+
+* which are system-reserved (either all non-namespaced keywords, or all those
+  under a particular namespace, or those that adhere to a particular convention
+  [e.g. name starting with `_` or `-`?])
+* which imply local-only, non-replication
+
+### Value types
+
+Any value type supported by [Sedan](https://bitbucket.com/cemerick/sedan) may be
+used as a tuple value.
+
+Note that it is considered good splice modeling to use only scalar values.
+Directly encoding aggregates (e.g. vectors) as tuple values has three
+significant drawbacks:
+
+* it becomes impossible to query for / access / modify the members of those
+aggregates (e.g. the elements in a vector) individually
+* consequently, you end up needing to encode/decode the entire aggregate when
+  updating / accessing it, implying a potentially significant performance
+  penalty
+* It is impossible for multiple actors to modify parts of the aggregate
+  independently within their local Splice replicas, and have those modifications
+  replicate and join with other modifications without conflict.  (i.e. Splice is
+  a CRDT, but you can work around / sabotage the 'C' part of those semantics via
+  ill-considered use of aggregate tuple values.)
+
+See the [modeling](#modeling) section of this document for details on how to
+represent aggregates within Splice efficiently and without sabotaging the
+"conflict-free" semantics it provides.
+
+#### References
+
+TODO
+
+### <a name="removals"></a> Removals
+
+Each tuple represents the addition/creation of a single attribute/value entry
+within the multimap entity 
+identified by its `eid`.  e.g. here is a tuple representing the `[:name "Jane"]`
+entry in entity `:e3` that was included in write `:w4` with a unique identifier
+within that write of `8`:
+
+`[:e3 :name "Jane" :w4 8]`
+
+Removals of those entries are also represented by
+tuples.  If someone were to want to remove that entry from `:e3`, they would
+need to write out a tuple with:
+
+* The same `eid` and `attribute` components as the entry to be removed
+* a `value` of `nil`
+* a `remove-write` component equal to the `write` component of the entry to be
+  removed
+* a `remove-tid` component equal to the `tid` component of the entry to be
+  removed
+
+This tuple satisfies these constraints; when its write is applied to a Splice
+store that contains the "Jane" entry, that entry will be removed (it happens to
+have been a part of write `:w90` with a `tid` of `3`):
+
+`[:e3 :name nil :w90 3 :w4 8]`
+
+Note that the same entry may have been added by multiple writes (typically
+corresponding to concurrent activity by multiple actors affecting disparate
+Splice databases that were actively or later replicated), e.g.:
+
+```
+[:e3 :name "Jane" :w4 8]
+[:e3 :name "Jane" :w16 1]
+[:e3 :name "Jane" :w82 103]
+```
+
+In order to logically remove a given entry, one must remove all known tuples
+that assert that entry. (This particular semantic is called "observed remove" in
+the CRDT literature [where the `write` eid is the "tag"], and is one strategy to
+cope with concurrent, uncoordinated changes.)  So, given the above set of tuples
+observed to assert the "Jane" entry, one must write out a corresponding set of
+remove tuples in order to fully remove it:
+
+```
+[:e3 :name "Jane" :w90 1 :w4 8]
+[:e3 :name "Jane" :w90 1 :w16 1]
+[:e3 :name "Jane" :w90 1 :w82 103]
+```
+ 
+The "Jane" tuple could later (or concurrently) be re-added to the `:e3` entity;
+removing it would again require writing a remove tuple matching the addition
+tuple as described earlier.
+
+It is nonsensical to remove a removal tuple; doing so is effectively a no-op
+(though one will be able to query to find it).  To revert a removal, one must
+write a new tuple fully representing the desired entry.
+
+#### Removals, history, and immutability
+
+Note that "removal" is strictly a logical, non-destructive operation.  Removed
+entries are not erased or deleted from the database; they are simply no longer
+taken into account when determining the _current_ state of the affected
+entities.  In addition, removed entries may be readily accessed by queries that
+explicitly walk backwards in history, or those applied to snapshots of the
+database that don't include removal tuples.
+
+TODO retention policy, see bakery.md
+
+## Writes and replication
+
+A _write_ is a collection of tuples that are applied to a replica atomically.
+Each write contains tuples defining an entity representing metadata about the
+write itself, e.g. wall-clock times (when the write was originally made, when it
+was replicated locally, etc), optional causality information such as vector
+clock representations, indications of who/what was responsible for the write, as
+well as arbitrary application-specific metadata.  The eid of the write entity
+must be in the `write` slot of each tuple in the write, including the tuples
+that define the write entity.
+
+_Replication_ is the (potentially bidirectional) transmission of
+tuples from one store to another, called _replicas_.  The objective is to bring
+the "destination" replica's cumulative state up to date with that of the
+"source" replica's, subject to particulars of replication policy, access
+control, and optimizations that do not affect the semantics of e.g. query.
+
+Splice does not (yet) define its own replication algorithms or transports
+(though it does implement a few); the intention is that any suitable replication
+mechanism may be used (including those provided by
+tuple backends themselves).  The only requirement is that Splice replication
+must obey these invariants:
+
+* Writes must be replicated and applied atomically; i.e. at no point should only
+part of a write affect/inform a query.
+* Writes must be applied to the destination replica in the same order that
+  they were applied to the source replica.  (This implies a partial order among all
+  writes in the system.)
+
+Write entities must contain the following attributes:
+
+* wall-clock times
+  * original write
+  * local replication (not replicated!)
+* Reference to the identity of the writer
+* Number of tuples in the write (could be used to enforce atomicity of write
+  application if tuple backend's "native", non-tuple-aware replication is being
+  used)?
+* Later (and optional):
+  * cryptographic signature of the write (hard in JS environments)
+  * vector clock and other causality information
+  * markers / signature from transaction / consensus services indicating
+    acceptance of a write within a serializable history
+
+### What is replicated where, when, and how is it retained?
+
+A taxonomy of replication and tuple storage concepts:
+
+* an _origin_ is the replica where a write is originally made, either by a human
+  or an automated actor.  It should be incredibly rare for an origin to not
+  retain every tuple that was originally written to it (subject to e.g. purging
+  and local operational considerations around GC of tuples older than `T`).
+* _filters_ are criteria (presumably implemented as a query) that limits the scope of what one
+  replica delivers to another during replication
+* Tuple storage comes in two flavours, _durable_ and _caching_:
+
+  * Durable storage is where the replica aims to retain received
+    tuples permanently (subject to purging and transient semantics).
+  * Caching storage is where the replica retains tuples only to optimize the
+    responsiveness of local queries.
+
+  Which mix of storage a replica uses is a local policy decision, but there are
+  some general expectations:
+
+  * Origin replicas should keep their original writes' tuples in durable storage
+  *
+* _Peering_ is where a replica aims to collect all tuples from its
+  counterpart(s) into durable storage
+* _Tethering_ is where a replica performs replication solely in response to
+  query / immediate activity, primarily utilizing caching storage
+
+
+Formally, there is little to distinguish one replica from another: any replica
+can peer with another given sufficient resources, and any replica can tether to
+another if it has permission to utilize the latter's resources to assist in
+querying.  However, there is likely to be an obvious topological pattern, where
+very large nodes (just a logical abstraction over very large fleets of hardware)
+provide authoritative, long-term durable storage; these will peer most
+frequently.  The least-connected members of the topology will likely be tethered
+to one or more of these large peering nodes, though it is possible that nodes
+around the periphery of the graph will also peer from time to time, often with
+significant filtering.   
+
+     +----------------+       +------------------+
+     |                |Peering|                  |
+     |                +------->                  |
+     |                <-------+                  |
+     |                |       |                  |
+     +-^---------^--^-+       +-^---------------^+
+       |         |  |           |               | 
+       |Tethering|  +---------+ |               |
+       |         |            | |               |
+  +----V+     +--v---+      +-v-v---+         +-v----+ 
+  |     |     |      |      |       <---------+      |
+  |     |     |      |      |       +--------->      |
+  +-----+     +------+      +-------+ Peering +------+ 
+
+
+## Snapshotting
+
+Filtering on write time(s) (there are many to choose from, potentially) allows
+queries to operate on snapshots of database from different timelines.
+
+Multiple definitions of "consistency" exist given Splice's distribution model,
+each one governed by a different basis of time (three potential ones listed
+here, there may be more):
+
+1. when writes were applied to the local replica
+2. when writes were _originally_ made (this will be identical to #1
+  for writes made locally, as opposed to those that are replicated in, which
+  will always have replication times that come after their original write time)
+3. when writes are marked as "accepted" by an external consistency service,
+  e.g. as part of a proposed then accepted transaction
+
+Which mode one uses as the basis of queries defines the stability of results
+over time.  e.g. mode 3 and mode 1 (if incoming replication is disabled, or if
+queries are constructed to ignore writes replicated in from elsewhere) will
+always present consistent histories; meanwhile, as writes are replicated in,
+mode 2 will present histories that change based on the relative clock skew of
+remote actors replicating in near real-time, the simple passage of time between
+original timestamping of writes to "offline" replicas and the replication of
+those writes elsewhere, and even "malicious" timestamping of original writes.
+
+### <a name="modeling"></a> Modeling flexibility
+
+Anything that can be modeled in terms of OR-sets should work well.
+
+#### Sets
+
+The values in multimaps are sets.
+
+#### Maps
+
+It's a multimap already, which is sufficient / superior for a vast subset of
+applications.
+
+Enforcing a single-value constraint per attribute (or deterministically choosing
+a single value given concurrent additions of different values) would require a
+transaction / consensus mechanism.  TBD
+
+#### PN-Counters
+
+`write` "tags" are not sufficient to represent sources of increments and
+decrements to PN-Counters.  Each tuple's value needs to differ in order to
+preserve each "operation" given OR-set join semantics.  i.e., this doesn't work:
+
+```
+[:e1 :cnt 1 :w1]
+[:e1 :cnt 1 :w2]
+[:e1 :cnt -1 :w3]
+[:e1 :cnt 1 :w4]
+```
+
+All of the duplicate values (`1` or `:inc`, or whatever you want to use to
+represent increments and decrements) will be joined away; writes 2 and 4 would
+have no effect on query.  This works, though:
+
+```
+[:e1 :cnt ["foo" 1] :w1]
+[:e1 :cnt ["bar" 1] :w2]
+[:e1 :cnt ["baz" -1] :w3]
+[:e1 :cnt ["chi" 1] :w4]
+```
+
+Each of the strings in the value vectors should be globally-unique.  This can be
+reasonably queried to yield all values participating in the counter at
+`[:e1 :cnt]`, which has a value of `3` given the above.
+
+#### Composites / entity references
+
+```
+{:a :x :b {:c :y :db/id 2} :db/id 1}
+
+
+[:e1 :a :x]
+[:e1 :b #db/ref[:e2]]
+[:e2 :c :y :wx]
+[:wx :ts/local 1234 :wx]
+```
+
+or, if we want to refer to a particular version of an entity:
+
+```
+;; (At time 1235:)
+{:c :z :db/id 2}
+{:a :x :b {:c :y :db/id 2} :db/id 1}
+
+[:e1 :a :x]
+[:e1 :b #db/ref[:e2 :wy]]
+[:e2 :c :y :wx]
+[:wx :ts/local 1234 :wx]
+[:e2 :c :z :wy]
+[:wy :ts/local 1235 :wy]
+
+```
+
+`#db/ref[2 1234]` being a tagged literal, indicating a reference to entity `:e2`
+at time `1234` (the time component being optional, in case a reference should
+track downstream changes).  The write tag could even be included there, which
+would lock a reference to a particular revision of a tuple (thus excluding any
+that match the entity and time constraints but were concurrently written on
+another replica).
+
+#### (Partially-ordered) sequences
+
+TODO
+
+#### Graphs
+
+```
+       fence
+  +----+   +-----+
+  |              |
+  |      P       |
+  |  ___/|\___   |
+  br/    |    \span
+         |
+       strong
+
+; ignoring write tags here
+[1 :tag :p]
+[1 :ref/html 2]
+[1 :ref/html 3]
+[1 :ref/html 4]
+[2 :tag :br]
+[2 :rank 0.0]
+[3 :tag :span]
+[3 :rank 1.0]
+[4 :tag :strong]
+[4 :rank 0.5]
+[5 :fence true]
+[5 :start 2]
+[5 :end 3]
+```
+
+#### Dense tabular data
+
+```
+    A  B  C
+   ---------
+1 | x  y  z
+2 | a  b  c
+3 | i  j  k
+
+[ts tag m [1 'A] x]
+[ts tag n :schema q]
+```
+
+(i.e. `:schema` could point to a row- or column- (or even cell-) based schema
+needed by programs consuming the data)
+
+TODO the vector of [row number, column name] as tuple attribute is intuitive,
+and enforces total order, but means that column and row insertions are not
+possible given concurrent edits (and are a nasty business even with a single
+actor).  Just how painful would using ranks be here for real work/data?
+
+#### Binary
+
+Binary data stored in Splice should be chunked into reasonable sizes (so as to
+keep each tuple to a polite size), and gathered into logical blobs by
+partially-ordered references (which, for all practical scenarios, are surely
+made totally-ordered since the originator of a blob creates it all at once, and
+can assert the ordering of each chunk; can't think of any use case where
+_chunks_ are going to be added concurrently by uncoordinated actors).  Blobs are
+thus very readily removed; each replica can make a local policy decision re: how
+aggressively to replicate / retain the corresponding chunks.  Conversely, chunk
+tuples should probably never be removed (if only because of the size cost,
+though that is probably just advisory), leaving chunks totally immutable (even
+logically).  In any case, default replication policy should probably _skip_
+binary-valued tuples, potentially triggering replication of them from upstream
+replica(s) only when references to them are de-referenced.
+
+#### What doesn't splice readily support?
+
+* "intuitional" counters
+* registers beyond LWW and MV varieties
+* Anything else requiring PLOP semantics
+* ...?
+
+All of the above could be achieved/supported by providing transactional
+semantics (or, more generally, consensus mechanism) across splice replicas /
+actors.
+
+### Query (high-level walkthrough)
+
+#### Tuple scan
+
+Let's assume covering indices stored in an SSTable
+
+Assuming covering indices, this is straightforward:
+
+`subseq` (or equivalent for the particular backend/storage being used) with
+desired beginning and ending tuples. If you only have one end of the range, and
+results should be open on the other, a "top" or "bottom" tuple needs to be
+constructed, e.g. "ZZZZZZZZZZZZZZZZZZZZZZZZ" when used as an end bound if the
+data in question were characterized as a string. (Hopefully the representation
+in question is good enough to provide a dedicated top and bottom value so such
+hacks aren't required.)
+
+Encoding/decoding boundaries denoted by '@':
+
+```
+    +------------------+               +----------------------+
+    |                  |               |   Durable SSTable    |
+    |     "Apps"       |               |----------------------|
+    |                  +----------+    |                      |
+    +--^+--------------+          |    |   +------------+     |
+       @|                         +----@---> +-----------+    |
+       ||    +---------------+         |   | | +-----------+  |
+       ||    |               <---------|   | | |           |  |
+       ||    | Tuple scan(s) |         |   +-|-|  Tuples   |  |
+       ||    |               +---+     |     +-|           |  |
+       ||    +-----+------+--+   |     |       +-----------+  |
+       ||          |      |      |     |                      |
+       |@          |      |      |     +-----------^----------+
+ +-----+v----------v---+  |      |                 |
+ |                     |  |      +-------------+   |
+ |      "Query"        |  |                    |   |
+ |  Joins, @predicates,|  |                    |   |
+ |  @expressions,      |  |                    |   |
+ |  @aggregations      |--+------              |   |
+ |                     |  |     |              |   |
+ +------------+^-------+  |     |              |   |
+              ||          |     |              |   |
+              ||          |     |              |   |
+    +---------v+----------v-+   |            +-v---+-------+
+    |                       |   +------------>             |  Replica-1
+ ~~~|      Tethering        |~~~~~~~~~~~~~~~~|   Peering   |~~~~~~~~~~~~~~
+    |                       | Replica-3   ~  |             |  Replica-2
+    +---------+^------------+             ~  +----+^-------+
+              ||                          ~       ||
+              ||                          ~       ||
+              ||                          ~       ||
+              v|                          ~       v|
+```
+
+For many (most?) replication scenarios, tuples will not need to be decoded at
+all. Only if the replication criteria requires runtime predicate filtering
+would decoding be neccessary to yield query results that inform replication.
+
+#### "Full" queries
+
+
+
+### Implementation: Queries
+
+Referring to the small graph example above:
+
+###### Attribute lookup
+
+Given a `[eid a]` pair (`[1 :tag]`), give me its value (`#{:p}`)
+
+###### Entity attributes
+
+Given an `eid` (`1`), give me all of its attribute names (`#{:tag :children}`).
+
+###### Entity lookup
+
+Given an `eid` (`1`), give me all of its attributes as a map (`{:tag #{:p}
+:children #{2 3}}`).
+
+###### Recursive walk
+
+Given an `eid` (`1`) and a set of keys to traverse (`#{:children}`), give me:
+
+* the eids of all transitively-referenced entities (`#{2 3}`), OR
+* a composite entity, rooted at the entity with the eid specified in the query,
+  with referenced entities replacing their references (`{:tag #{:p} :children #{{:tag :br} {:tag :span}}}`)
+
+#### General principles
+
+* All queries must be parameterizable by time, default being "now".
+* Any complete entities retrieved must contain their eid under a special key
+  e.g. `:db/id #db/id "...UUID..."`
+
+## "Formal" "Specification"
+
+_(Part of my earliest thinking through CRDTs and the shape of the data model. May
+not be relevant / representative anymore.)_
 
 Following the pattern of Shapiro et al.'s process of building a data type from
 its sequential specification:
 
 `M = #{K #_> #{V V' V'' …}}`
-  
+
 #### Sequential spec
 
 ```
@@ -45,574 +624,157 @@ its sequential specification:
 * _V- or K-specific join fn?_ (which can be any of the above, or other) (maybe
   later)
 
-### Implementation thoughts
+## TODO
+
+### Design
+
+* Various semantics around consistent snapshot, causality, and (partial)
+  ordering of updates is all hand-wavy.  In particular:
+  * What does it mean for a reference value to refer to HEAD or latest? Write
+    timestamps are straightforward, but surely run into all the usual BS with
+    wall clocks, and get really strange given long-lived partitions.  What
+    happens when a reference is tied to a particular rev of an entity, which
+    itself refers to other entities in a floating manner?
+  * To what extent should causality be encoded in splice to start? OR-set
+    semantics are necessarily causal for removes, but nothing else.  Is that
+    sufficient for a large enough set of possible applications?
+  * What does "consistent snapshot" mean in the context of floating revs?
+* Identity
+  * scheme for uniquely identifying writers
+  * scheme for uniquely identifying humans in the system?
+  * maybe "strings" is as far as we can go at this level, let identity
+    definition / verification be just another service?
+* Trust
+  * writes, once written, can't be tampered with; requires signing of writes in
+    a verifiable way
+  * malicious actors replicating entirely spoofed writes WTF
+  * eids need to be globally unique; but, what happens when a poorly-implemented
+    app starts spitting out eids that aren't unique?  Similar but potentially
+    even more costly would be entity modifications that are replicated by a
+    malicious actor.  Do we need...?:
+
+    * mechanisms for backing out writes from suspect replicas (what happens if
+    * blackballing particular replicas that are known to be a source of bad
+      tuples (similar to spam blacklists)
+    * signing writes in a verifiable way (so problematic writes can be tracked
+      to their authors, thus providing disincentive)
+
+    None of this is a problem to start, when (a) the number of authoritative
+    sources of tuples is very low, and (b) the software that is producing tuples
+    is produced by a small number of organizations.  It's an issue when
+    untrusted actors attempt to co-replicate, without any trusted authority in
+    the middle / arbitrating.
+* Efficient reactive query is a must: esp. if replication is to be driven off of
+  access control properties, ensuring that a query can emit a result immediately
+  upon receiving e.g. the final missing tuple is critical compared to the
+  fallback prospect of re-running each "reactive" query after each write
+  completes.  More generally, reactive query is needed by any kind of autonomous
+  tool / agent.
+* How should data purging / truncation be supported?  Contemplated supporting it
+  directly in the data model, rejected it (see below), but a mechanism for
+  e.g. purging data prior to X for entities Y for attributes Z should be
+  supported.  Challenges include:
+  * How does this affect local query (i.e. the data is gone, but should
+    queries/apps be able to detect this)?
+  * How does this manifest itself mechanically? Policy, management operation, or
+    other, or both?
+
+### Implementation(s)
+
+## Design decision non sequiturs
+
+* Struggled a while thinking about how to best represent remove operations.  The
+  challenge is that a tuple representing a removal/retraction needs to
+  identify the existing tuple whose value it is affecting (effectively
+  shadowing it at read/query time, though an implementation might actually
+  modify the removed tuple to indicate this so that it doesn't have to do
+  subqueries to determine whether tuples that match query clauses have actually
+  been removed or not).  There are 3.5 ways to do this AFAICT:
+
+  1. A remove tuple must include all components of the tuple to be removed. This
+  is the most direct transliteration of the specification of OR-sets, but forces
+  a potentially large cost for removals, since removal tuples have to re-state
+  the full eid/a/v/write to identify the tuple to be removed.
+  2. A remove tuple could include only the _hash_ of the value of the tuple to be
+    removed.  This caps the size of the remove tuple, but complicates: who does
+    the hashing, when, is the value hash stored with the original tuple or
+    (re)calculated at each replica, what encoding of values is to be used as the
+    basis for a hash (if sedan, then that would be forever tying splice to
+    a _specific revision_ of sedan, inextricably so).
+  3. Tuples each get _their own_ globally-unique ID (`tid`).  This makes it easy
+  to name existing tuples, but may actually yield more waste than pushing around
+  removed values, since removals are likely to be a minority case, but this
+  approach would require all tuples ever to carry a tid in the off chance that
+  they'll eventually be removed.
+    * Alternatively, tuples each get their own _optional_ ID.  i.e. when the
+  value in a tuple is larger than a potential tuple ID, then the latter is
+  added.  If it's not, then a removal tuple has to restate the value itself.
+    * Alternatively alternatively, tuple IDs can be very small: they can be any
+      scalar unique within the write they were a part of (just sequentially
+      numbered would work, since each write originates from a single source).
+      The identifier for each tuple is then compound, `[write tid]`.  All
+      tuples already have to identify the write eid (since that's the tag for
+      the entry, in OR-set terms), so adding a (small, much smaller than a UUID)
+      might be an acceptable cost vs. treble damages on removals if values need
+      to be restated.
+
+  Option 1 would have made remove operations incredibly expensive, even in
+  common cases.  Option 2 is stupid-complicated, as is option 3.1.  Option 3.2
+  was selected because it imposes a minimial cost (to all tuples, unfortunately)
+  in order to avoid potential treble damages just because a user wanted to
+  remove an entry with a large value (that just multiply given multiple
+  tuples encoding the same logical entry).  _If necessary_, this decision can be
+  reverted to the simplest option (#1) via a straightforward "upgrade" operation
+  on any existing Splice databases (for all removal tuples, rm `tid`, set
+  `value` to the `value` of the entry each is removing).
+* Contemplated attempting to incorporate purging/excision into the tuple
+  representation as a particular type of removal with specific operational
+  (side-effecting) semantics, but abandoned the notion. The decision to require
+  inclusion of values in removes (described above) made representing purges that
+  much more difficult (since including the value to be purged in the purging
+  tuple is pointless).  More importantly, insofar as splice datasets are
+  replicated, the elimination / destruction of historical data would have always
+  been advisory. If a tuple has not been replicated elsewhere, and one's local
+  replica is configured to do so, then one can have confidence that history has
+  actually been purged; given other circumstances, one is relying upon the good
+  faith of prior replication participants.  Thus, purging can be performed as a
+  purely local operation of a particular splice implementation, but isn't
+  encoded in the data model at all. Implementations that provide a purge
+  operation/API should write a tuple/entity representing the purge (so it's
+  queryable, particular representation TBD), but that data should be considered
+  local-only, and not subject to replication by default.
+* Decided against storing binary data elsewhere (e.g. S3 or similar), and
+addressing it via references.  Not providing a solution for binary data would
+imply expecting/enforcing particular semantics (i.e. immutable chunks/blobs) on
+the accompanying blobstore(s) (which would always be a point of confusion /
+contention), and necessitate the entire topology either maintaining a separate
+replication mechanism for binary data, or having to be online in order to access
+referenced binary data (again, from e.g. S3).  _Maybe_ the former is actually
+reasonable (and effectively true given implicitly different default replication
+policy for binary-valued tuples), but we can consider it an optimization at the
+moment, not an inherent data modeling question.
+* "Distributed query" (i.e. scanning for tuples both locally and across N
+  replicas the local is tethered to) is a no-go for now.  The complexity and
+  costs for doing this are just impossible to contemplate right now, and it's
+  not a must-have for the first spikes of the first apps.  Someday.  For now,
+  all queries either run locally, or maybe could be sent to tethered replicas
+  for execution there.
+* `nil` is disallowed as a tuple value, except for removal tuples, where it is
+  effectively standing in for "undefined"
+
+## Related work
+
+* Shapiro et al.
+* Datomic
+* Linda / TupleSpaces
+* Operational Transforms
+
+## Thanks
 
-Should allow us to model damn near anything.
-
-Atomic unit similar to Datomic datoms, called _units_ for now:
-
-`[entity-id attribute value tag]`
-
-TODO: the terminology around unit/tag/entity/attribute/value is still weak
-
-This is a "unit":
-
-```
-[#entity "cea77880-6610..."
- :name
- "port79"
- #tag "a5cde-45cc-..."]
-```
-
-It consists of four parts, `[e a v tag]`:
-
-1. an **entity id**, a unique token associated with a logical
-   entity/identity.  Each entity can have many attributes.  (Alternative names:
-entity subject item name element cell)
-2. an **attribute key**, a value identifying the attribute
-   stored by this unit.  Multiple units can provide values for the same
-entity/attribute pair, making for natural sets and multimaps.  (Alterantive
-names: predicate field slot bit cell register part feature aspect)
-3. a **value**, the value for this unit (Alternative names: value
-   object datum bit)
-4. a **tag**, a unique token associated _only_ with the operation that created
-   the unit
-
-* `tag` identifies a single write (which may convey many units, including
-  "meta" units describing metadata about the write itself; at a minimum write
-metadata _always_ includes a timestamp indicating when the write occurred) 
-* `e` and `tag` need to be globally unique, _always_.  (This implies the use of
-  UUIDs, but does not require it, as long as the identifiers used are globally
-unique; in particular, different encodings of the same notion are reasonable).
-There's no coordinator here, so new entity and operation identifiers must be
-able to be safely generated anytime, anywhere.  (Note that entity-ids are
-listed using numerals and other non-unique values in examples below just for
-the sake of readability.)
-* attributes can be anything; really, they're attribute keys, especially if one
-  wants to characterize each entity as a sub-multimap of the global multimap.
-* values can be anything
-
-Filtering on `time` is what will allow us to trivially obtain consistent snapshots
-— for limited sets of entities, or for the entire map.
-
-Again riffing on "a map is effectively a set of key+tag, each with a payload
-V", each tuple can be characterized as a map entry like so:
-
-`[[eid a] [v [time tag]]]`
-
-…especially insofar as we want to be able to efficiently look up the value of a
-particular attribute of a particular entity, and we want to be able to easily
-characterize discrete changes to an entity (i.e. we don't want to try to
-construct a join operation over map values).
-
-Now, how the tuple(s) are arranged in storage is entirely an implementation
-detail for each backend.
-
-#### Updates
-
-Updates to an existing key should be a combination remove/add (using identical
-timestamps so as to make it effectively atomic).
-
-#### Deletes
-
-We want to preserve history, but ensure that deletes are properly taken into
-consideration during query.
-
-Potential approaches:
-
-###### Use a tombstone: same eid, same a, same value (TODO uh, that's gonna get pricey for large values), but include a `:delete` entry in the t.
-
-```
-[1 :length 5 {:time 1354222006831 :actor "service handle name" ...}]
-[1 :length 5 {:time 1354222009983 :actor "..."}]
-```
-
-###### _Update_ the tuple's t with the same sort of information that otherwise appears in t, but tweaked so as to indicate the different operation.  e.g.:
-
-```
-[1 :length 5 {:time 1354222006831 :actor "service handle name"
-              :deleted/time 135422200998 :deleted/actor "..."}]
-```
-
-The latter nicely eliminates the need to:
-
-1. write a new tuple (including a potentially bulky value)
-2. compensate for the deletion "tombstone" at query time (just check a value in
-   a tuple's t rather than removing a tuple from an in-process query result)
-
-However, it:
-
-1. blows away the tuple's immutability, and therefore cache-friendly nature
-2. is a dirty stinking hack :-P
-
-###### Clever alternative
-
-What if t was really just a (unique) "tag", and the information associated with
-it was stored elsewhere?  Then we could:
-
-1. write a "tombstone" tuple _without a value_ (cheap!)
-2. modeling would be friendlier: no needing to hack a distinction between
-   add/remove t data
-
-However:
-
-1. a join (or equivalent) would be needed to pair up t data with its
-   corresponding tuple
-
-### What is `t`!?
-
-Nothing here makes it clear.  Gotta 'decomplect' (ugh).
-
-* a unique tag necessary to implement Observed-Remove semantics
-* a system timestamp associated with the operation
-* a userland timestamp associated with the operation (this is a concession to
-  the reality that changes might be made by an offline user long before it
-trickles into the database)  (TODO this is screwy; what happens when there's
-multiple databases, run by others, and two databases are merged?  This is
-either a problem, or a premature optimization for a time where there will be >
-1 datastores.)
-* a bag of attributes associated with the _operation_, not the tuple itself.
-  e.g.:
-  * instigating user/handle/"agent" (for automated/programmatic operations)
-  * auditing info
-  * etc. etc etc
-
-Tuples: `[e a v e']`
-
-```
-(if e
-  (if v
-    :attribute-assertion
-    :attribute-removal)
-  (do (assert v) :operation-metadata))  
-```
-
-Operation meta: `[e' a v timestamp e']`
-
-Tuple removal/retraction: `[e a v e'' e']`
-
-Example addition, with meta, and removal, with meta:
-
-```
-["eUUID" :tag :p "tUUID1"]
-["tUUID1" :user "cemerick" "tUUID1"]
-["tUUID1" :source "interactive" "tUUID1"]
-["tUUID1" :app "wiki app" "tUUID1"]
-["tUUID1" :time 1354222006831 "tUUID1"]
-;; this is the 'remove' operation/tuple, naming the value and the write that produced it
-;; this gives us Observed-Remove semantics for value removal
-["eUUID" :tag :p "tUUID2" "tUUID1"]
-["tUUID2" :user "cemerick" "tUUID2"]
-["tUUID2" :source "auto-reformatter" "tUUID2"]
-["tUUID2" :app "wiki app" "tUUID2"]
-["tUUID2" :time 135422200998 "tUUID2"]
-```
-
-The #tombstone pair literal containing the `[tag value]` of the value to be removed
-is what indicates a remove.
-
-Operation metadata can never be "deleted" (paired with tombstones), so it
-doesn't need its own tags.
-
-The "eid" for operation metadata tuples is compound because we need to use the
-same tag when deleting a tuple.  It's the timestamp that distinguishes between
-meta on an add operation and meta on a remove operation.
-
-TODO: `remove` slot should be :operation (or similar), with options of
-* `nil` (assert)
-* `:remove` (removal, no impact on history)
-* `:replace` (equivalent to noHistory in datomic)
-* 
-
-### Multi-datastore capability
-
-i.e. for when the core of this is open sourced, and everyone can run a
-foundational port79 instance?
-
-Almost surely a premature notion.  But, right away, a clear issue:  how to
-reconcile the potential merging of two CmRDTs?  Can an op log be repeated, e.g.
-just send the tuples from one instance to another?
-
-(holy shit, we don't need a CmRDT given tuples...just propagate them in order
-of system timestamp?!  I suppose that would cause all sorts of difficulty if
-the destination instance was accepting operations at the same time.  Just make
-the replication a synchronous operation?  Have I been designing a CvRDT all
-this time and didn't realize it?!)
-
-TODO: review the Shapiro paper that goes into detail on CvRDT vs. CmRDT.
-
-### TODO "Provenance" / authorship verification
-
-If distributed replicas are to be managed by many parties that don't
-necessarily trust each other, then a method must be devised to identify trusted
-data vs. untrusted data.  Further, it should be possible for a datastore to
-maintain parallel (potentially contradictory) sets of data related to
-particular entity(ies), authored by different people/organizations/data
-sources.
-
-Git's use of SHAs to maintain a verifiable audit trail of sorts should be
-looked at.  Combined with signing of updates in some capacity, that should
-allow distributed replicas to consume units written elsewhere with as little or
-as much trust as they determine is appropriate.
-
-Good overview of how git hashes data, combines references to object SHAs with
-their filenames in trees:
-
-  http://www-cs-students.stanford.edu/~blynn/gitmagic/ch08.html
-
-If each write contains a hash of its contents (in the write metadata,
-presumably? But surely the write metadata must also be included in the
-calculation of the write's hash?), that includes by reference a hash of any
-prior write, then any downstream replica would be able to verify the write as
-complete (or not).  Pair this with signing of the hash and/or the contents of
-the write, and a replica could verify that a write is intact/untampered-with. 
-
-### Indexing
-
-It is not clear how to determine what indexes to maintain.
-
-As a stupid first step, Datomic's indexes include:
-
-* :eavt
-* :aevt
-* :avet contains datoms for attributes where :db/index = true.
-* :vaet contains datoms for attributes of :db.type/ref
-
-We don't have any notion of :db/index, so #3 can be ignored for now.
-
-`:vaet` makes sense to support efficient reference lookups for tree/graph traversal (in this case, finding referrers, not referents).
-
-Why no `:t*`?
-
-### Query
-
-* [magic
-  sets](https://encrypted.google.com/search?hl=en&q=%22magic%20sets%22%20datalog);
-I'm not sure what I've implemented so far, but it's surely not thoroughly
-efficient or well-grounded
-* [implementing datalog with
-  core.logic](http://martinsprogrammingblog.blogspot.co.uk/2012/07/replicating-datomicdatalog-queries-with.html)
-— very simple alternative to a "proper" datalog implementation, if necessary
-
-[e  a  v  tag]
-[e  a  v  tag?]
-[e  a  v? tag]
-[e  a  v? tag?]
-[e  a? v  tag]
-[e  a? v  tag?]
-[e  a? v? tag]
-[e  a? v? tag?]
-[e? a  v  tag]
-[e? a  v  tag?]
-[e? a  v? tag]
-[e? a  v? tag?]
-[e? a? v  tag]
-[e? a? v  tag?]
-[e? a? v? tag]
-[e? a? v? tag?]
-
-----
-
-Exchange with Marc Shapiro:
-
-> My thoughts so far are along the lines of using something like a Merkle tree
-> to determine when the state corresponding to a particular update has been
-> completely received — at which point, the CRDT's API can then safely include
-> that state in queries, etc.  I see that Riak already uses Merkle trees during
-> read-repair and (apparently, it's not open source) their multi-datacenter
-> replication; this makes me think I'm sniffing on the right track, even though
-> Riak's usage of Merkle trees won't be helpful to me at an 'application'
-> level.
-> 
-> Something along these lines may be desirable anyway, in service of ensuring
-> data integrity and detecting tampering when replicating with untrusted
-> parties or over untrusted channels.
-
-It's an interesting thought.  I'm not sure Merkle tree is the right approach,
-because of concurrent updates.  You may want to look at this publication about
-signing updates in the presence of concurrent updates in CRDTs:
-http://www.loria.fr/~ignatcla/pmwiki/pmwiki.php/Main/PublicationsByYear?action=bibentry&bibfile=ref.bib&bibref=TruongGroup12
-
-(Title: Authenticating Operation-based History in Collaborative Systems,
- Hien Thi Thu Truong)
-
-### Modeling flexibility
-
-#### Composites / entity references
-
-```
-;; (At time 1234:)
-{:a :x :b {:c :y :db/id 2} :db/id 1}
-
-
-[1234 "tag1" 1 :a :x]
-[1234 "tag1" 1 :b #db/ref[2]]
-[1234 "tag1" 2 :c :y]
-```
-
-or, if we want to refer to a particular version of an entity:
-
-```
-;; (At time 1235:)
-{:c :z :db/id 2}
-{:a :x :b {:c :y :db/id 2} :db/id 1}
-
-[1235 "tag2" 2 :c :z]
-[1235 "tag2" 1 :b #db/ref[2 1234]]
-```
-
-`#db/ref[2 1234]` being a tagged literal, indicating a reference to entity `2`
-at time `1234` (the time component being optional, in case a reference should
-track downstream changes).  The write tag could even be included there, which
-would lock a reference to a particular revision of a unit (thus excluding any
-that match the entity and time constraints but were concurrently written on
-another replica).
-
-#### Graphs
-
-```
-         P
-     ___/|\___
-  br/    |    \span
-         | 
-       strong
-
-[ts tag 1 :tag :p]
-[ts tag 1 :ref/html 2]
-[ts tag 1 :ref/html 3]
-[ts tag 1 :ref/html 4]
-[ts tag 2 :tag :br]
-[ts tag 2 :rank 0.0]
-[ts tag 3 :tag :span]
-[ts tag 3 :rank 1.0]
-[ts tag 4 :tag :strong]
-[ts tag 4 :rank 0.5]
-```
-
-#### Dense tabular data
-
-```
-    A  B  C
-   ---------
-1 | x  y  z
-2 | a  b  c
-3 | i  j  k
-
-[ts tag m [1 'A] x]
-[ts tag n :schema q]
-```
-
-(i.e. `:schema` could point to a row- or column- (or even cell-) based schema
-needed by programs consuming the data)
-
-An optimization for truly large datasets would be to store only a reference to
-an efficient "external" datastore (maybe Cassandra would be right here?).
-
-#### Maps
-
-It's a multimap already; just need to be able to enforce a single-value
-constraint per key (or deterministically choose a single value given concurrent
-additions of different values).
-
-#### Sets
-
-The values in multimaps are sets.  Done.
-
-#### Binary
-
-Depending on the backend, large binaries are just values, wrapped in a
-streaming interface or delay.
-
-#### RDF
-
-What does it mean for this datastore to interoperate or be backwards-compatible
-with existing RDF datastores?
-
-### Implementation: Queries
-
-Referring to the small graph example above:
-
-###### Attribute lookup
-
-Given a `[eid a]` pair (`[1 :tag]`), give me its value (`#{:p}`)
-
-###### Entity attributes
-
-Given an `eid` (`1`), give me all of its attribute names (`#{:tag :children}`).
-
-###### Entity lookup
-
-Given an `eid` (`1`), give me all of its attributes as a map (`{:tag #{:p}
-:children #{2 3}}`).
-
-###### Recursive walk
-
-Given an `eid` (`1`) and a set of keys to traverse (`#{:children}`), give me:
-
-* the eids of all transitively-referenced entities (`#{2 3}`), OR
-* a composite entity, rooted at the entity with the eid specified in the query,
-  with referenced entities replacing their references (`{:tag #{:p} :children #{{:tag :br} {:tag :span}}}`)
-
-#### General principles
-
-* All queries must be parameterizable by time, default being "now".
-* Any complete entities retrieved must contain their eid under a special key
-  e.g. `:db/id #db/id "...UUID..."`
-
-### Future considerations
-
-* "watcher" queries — return when a query matches something, done in real-time
-* reifying operations into tuples, e.g. compute the sum of value :x of entity
-  `a` and value :y of entity `b`, and put them _here_
-* optional consistency constraints
-  * per-key
-  * per-value-type
-  * scoped within/below values accessible under a particular key
-* multiple backends suitable for geographical distribution and low latency
-  (Riak!)
-
-### Storage backend notes
-
-Regardless of the backend(s) used, the _model_ has to be the same.  A port79
-instance running on riak should interoperate / replicate with another running on
-postgres or in the browser (IndexedDB!) or ..., all with **_identical query
-semantics_**.
-
-If something provides sorted storage for (index) tuples, we can use it.
-However, insofar as we're wanting to retain Clojure sorting semantics, we're in
-a position of trying to enforce those semantics on top of whatever storage we're
-using.  Sounds challenging.  We need something similar to
-[sext](https://github.com/uwiger/sext) or
-[bytewise](https://github.com/deanlandolt/bytewise) for Clojure[Script?].  Hard
-bits there:
-
-* Numerics; largely addressed in [Rummage /
-  SimpleDB](https://github.com/cemerick/rummage/blob/master/src/main/java/cemerick/rummage/DataUtils.java)
- * BigInteger/BigDecimal; _very_ hard.  Potential solution for integers may be
-   [here](http://www.xanthir.com/blog/b4K70) (though it only works for positive
-   ints as described)
-* Records generally, and also record types that have their own `Comparable`
-  implementation
- * solution: don't support records as tuple values?!
-
-AFAICT, there is no way to define a serialization for all numeric types that has
-a collation that matches the ordering of values of those types (e.g. ensure that
-the serialization of 1.0, 1.0M, 4/4, 1, and 1N [and for that matter, 1+0i, etc]
-collates to the same position relative to other values).  _However_, we don't
-need a total ordering across types:
-
-* the collation of different values actually doesn't matter at all if all we're
-  doing is _matching_ tuples exactly, likely with a wildcard (e.g. find all
-  tuples that match `[e a ?v]`).  All we need to do is find the exact matches of
-  `e` and `a` here; the sort order of the values found for `?v` is irrelevant.
-* Range queries/clauses (e.g. `[e a (< ?v 5)]` would benefit from a consistent
-  collation across types, but it's strictly unnecessary.  If we _did_ have a
-  consistent collation across types, then a single match lookup/scan would be
-  needed; however, without it, a match lookup/scan is needed for each compatible
-  type.  e.g. `(< ?v 5)` will need to scan for matches in longs, doubles,
-  bigdecs, and bigints.  Definitely a penalty, but still subexponential.
-
-Note that [IndexedDB only supports String keys, and likely will continue for
-some
-time](http://lists.w3.org/Archives/Public/public-webapps/2012AprJun/0816.html).
-Thus, any hope of an efficient sortable binary encoding is lost, at least for
-now.
-
-#### Options
-
-* postgresql
-  * all the query you could ever need
-  * fast and efficient
-  * good hosting options
-  * shardable and easily staffed if it becomes a long-term solution
-  * not readily distributed => high latency for anyone distant
-* Riak
-  * Lots of potential here: multi-datacenter replication, 2i, lucene search,
-    link walking, riak_pipe, riak CS for large binaries, more
-  * no starter hosting options (@riak\_on is working on it...?)
-  * No clear recursive query options, comparable to recursive CTEs in PG.  
-* redis?
-* voldemort?
-* cassandra/hbase/...   — way too complicated to start with
-* dynamodb
-  * Has secondary indexes now!
-
-#### Unworkable
-
-* couchdb
-  * impossible to produce even the most trivial of aggregates from views
-    (largely due to `reduce_limit`, but the problem — an empty object is
-    returned when e.g. 50 values are in a map — appears to occur even when that
-    is set to false)
-  * json documents + always-HTTP => fat
-* mongo: gtfo
-* graph databases (e.g. neo4j, orient, etc) seem ill-suited; though we have
-  references and such, and modeling graphs will be a primary use case:
-  * entities are most naturally vertices, but representing change over time in
-    graph databases is exceedingly cumbersome and inefficient
-  * graph databases do not generally appear to be shardable, never mind fully
-    distributed vs. e.g. Riak
-  * storing dense data will always be inefficient in all possible ways
-* datomic
-  * awesome, but enforces linearizability of _all_ operations; definitionally
-    impossible to distribute or scale horizontally
-
-## Operational transforms (mentioned for contrast)
-
-…views content as fundamentally sequential, requires operations be linearized
-(via _transforming operations_ that arrive out-of-order causally so that the
-specified offsets correspond to the current state of the sequential data).
-Widely viewed as difficult to implement, test, and verify due to combinatorial
-explosion of operation interactions.  IIRC, this is part of the reason why e.g.
-Google Wave requires server acknowledgement of each operation prior to allowing
-clients to proceed, and why Google Docs is only available for offline use in
-Chrome + a custom extension: the interactions between the various OTs needed for
-even basic text editing are difficult to apply consistently at scale and over
-unreliable channels.
-
-Further reading:
-
-* [ShareJS](http://sharejs.org/), which implements some simple OTs, mostly for
-  textual manipulations (based on
-  [diff-match-patch](https://code.google.com/p/google-diff-match-patch/) by Neil
-  Frasier
-* [Differential Synchronization](http://neil.fraser.name/writing/sync/), an
-  overview of an architecture to apply things like diff-match-patch to a
-  larger-scale distributed application
-* [OT FAQ](http://www3.ntu.edu.sg/home/czsun/projects/otfaq/), an _extremely_
-  comprehensive research-oriented overview of OTs, their weaknesses, and
-  implementation strategies.
-* [Google Wave protocol](http://www.waveprotocol.org/) site, which includes a
-  number of documentation resources relating to Wave's design and implementation
-  specifics.  (The project is theoretically [part of Apache
-  now](http://incubator.apache.org/wave/), but its development there has also
-  appeared to stall [last update ~2011].)  Of particular interest are the
-  [protocol whitepapers](http://www.waveprotocol.org/protocol).
-* http://en.wikipedia.org/wiki/Operational_transformation, very nice
-  bibliography for even further reading, though its actual content is mostly a
-  poor summarization of the OT FAQ.
-
-(Wave had a ton of great ideas that are outside of the scope of OTs vs. CRDTs,
-including robots [autonomous processes that react to / generate changes in
-documents]. We need some of that.)
-
-## ClojureScript suckage
-
-Here for want of a better place to put it.
-
-* no eval (when you need it, you **really** need it)
-* macros are written in Clojure, which wouldn't matter except for:
- * syntax-quote fully-qualifying symbols given the macro's _Clojure_ namespace, which has roughly zero relation to where the generated code is going to land in _ClojureScript_
-* no extend
-* no base types for data structures, which means it's a PITA to extend a protocol to e.g. all maps, or all sequential things.  You need to `extend-protocol` to default, and then dynamically `extend-protocol` to each encountered concrete type depending on whether it `satisfies` particular protocols or not.
- * This technique requires duplicating the dynamic extend-protocol everywhere, which would be perfect work for a macro, but you go reliably write cljs macros, I'll wait.
-* Shite numerics, but we can forgive cljs its host's weaknesses
- * However, there _are_ arbitrary-precision javascript numeric libraries out there...
-* The naming of protocols and their methods differs unnecessarily from the corresponding bits in Clojure, making it absolutely nightmarish to write portable type/protocol/record code.
-* No reified namespaces...bad enough, and I might be able to handle it, except you can't even resolve a function (nevermind some equivalent to vars) for a given symbol.  This is in part due to ClojureScript's name munging (which could be canonicalized and exposed via a `resolve` fn), and also due to Google Closure's inevitable munging and tree-shaking (which cljs has no view into...although, hello, source maps?)
 
 
 ## License
 
-Copyright © 2012 TODO
+Copyright © 2012-* Chas Emerick.
 
+(Sane OSS license TBD.)
