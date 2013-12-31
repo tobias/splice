@@ -1,7 +1,7 @@
-(ns p79.crdt.space.types
+(ns cemerick.splice.types
   #+cljs (:require cljs.reader)
   (#+clj :require #+cljs :require-macros
-         [p79.crdt.space.root-type :refer (defroottype)]))
+         [cemerick.splice.root-type :refer (defroottype)]))
 
 (defroottype #+clj :clj #+cljs :cljs Entity entity "entity" e string?)
 ; TODO need to change this to accept an entity OR a vector of entity + tag/write

@@ -1,6 +1,6 @@
-(ns p79.crdt.space.rank-test
-  (:require [p79.crdt.space.rank :refer (rank between) :as rank]
-            [p79.math :as math]
+(ns cemerick.splice.rank-test
+  (:require [cemerick.splice.rank :refer (rank between) :as rank]
+            [cemerick.splice.math :as math]
             [cemerick.cljs.test :as t])
   #+clj (:use clojure.test)
   #+cljs (:require-macros [cemerick.cljs.test :refer (deftest is are)]))

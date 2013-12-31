@@ -1,5 +1,5 @@
-(ns p79.crdt.space.planning
-  (:require [p79.crdt.space.memory.planning :as planning])
+(ns cemerick.splice.planning
+  (:require [cemerick.splice.memory.planning :as planning])
   (:use clojure.test))
 
 (deftest default-planner

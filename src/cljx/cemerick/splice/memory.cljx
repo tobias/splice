@@ -1,9 +1,9 @@
-(ns p79.crdt.space.memory
-  #+clj (:require [p79.crdt.space.memory.planning :refer (plan plan* quote-symbols)])
-  #+cljs (:require-macros [p79.crdt.space.memory.planning :refer (plan plan*)])
-  (:require [p79.crdt.space :as s :refer (Space IndexedSpace)]
-            [p79.crdt.space.memory.query :as q]
-            [port79.hosty :refer (now)]
+(ns cemerick.splice.memory
+  #+clj (:require [cemerick.splice.memory.planning :refer (plan plan* quote-symbols)])
+  #+cljs (:require-macros [cemerick.splice.memory.planning :refer (plan plan*)])
+  (:require [cemerick.splice :as s :refer (Space IndexedSpace)]
+            [cemerick.splice.memory.query :as q]
+            [cemerick.splice.hosty :refer (now)]
             [clojure.set :as set]))
 
 (defn- add-tuples

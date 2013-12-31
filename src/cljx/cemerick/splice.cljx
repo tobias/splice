@@ -1,14 +1,14 @@
-(ns p79.crdt.space
-  (:require [p79.crdt.space.types :refer (entity)]
-            [port79.hosty :refer (now current-time-ms)]
-            [port79.uuid :refer (time-uuid random-uuid)]
+(ns cemerick.splice
+  (:require [cemerick.splice.types :refer (entity)]
+            [cemerick.splice.hosty :refer (now current-time-ms)]
+            [cemerick.splice.uuid :refer (time-uuid random-uuid)]
             [clojure.set :as set]
             [clojure.walk :as walk]
             #+clj [clojure.pprint :as pp])
   ; this just forces the registration of data readers into
   ; cljs.tagged-literals/*cljs-data-readers* that wouldn't
   ; otherwise be available when compiling cljs statically
-  #+cljs (:require-macros p79.crdt.space.types)
+  #+cljs (:require-macros cemerick.splice.types)
   (:refer-clojure :exclude (replicate)))
 
 (def unreplicated ::unreplicated)
@@ -27,7 +27,7 @@
 (defn tuple? [x] (instance? Tuple x))
 
 (defn coerce-tuple
-  "Positional factory function for class p79.crdt.space.Tuple
+  "Positional factory function for class cemerick.splice.Tuple
 that coerces any shortcut entity values to Entity instances.
 This fn should therefore always be used in preference to the Tuple. ctor.
 The 4-arg arity defaults [remove] to false."

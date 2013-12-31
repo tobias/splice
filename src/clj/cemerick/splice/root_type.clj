@@ -1,4 +1,4 @@
-(ns p79.crdt.space.root-type
+(ns cemerick.splice.root-type
   (:require cljs.compiler))
 
 

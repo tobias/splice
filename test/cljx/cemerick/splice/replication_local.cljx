@@ -1,10 +1,10 @@
-(ns p79.crdt.space.replication-local
-  (:require [p79.crdt.space :as s :refer (write q)]
-            [p79.crdt.space.replication :as rep]
-            [p79.crdt.space.memory :as mem :refer (in-memory)]
-            #+clj [p79.crdt.space.memory.planning :refer (plan)]
+(ns cemerick.splice.replication-local
+  (:require [cemerick.splice :as s :refer (write q)]
+            [cemerick.splice.replication :as rep]
+            [cemerick.splice.memory :as mem :refer (in-memory)]
+            #+clj [cemerick.splice.memory.planning :refer (plan)]
             #+cljs [cemerick.cljs.test :as t])
-  #+cljs (:require-macros [p79.crdt.space.memory.planning :refer (plan)]
+  #+cljs (:require-macros [cemerick.splice.memory.planning :refer (plan)]
                           [cemerick.cljs.test :refer (deftest is are)])
   #+clj (:use clojure.test))
 
@@ -19,7 +19,7 @@
     (swap! src s/write [{:a 5 :db/id "foo"}])
     (let [query (plan {:select [?k ?v ?write ?write-time]
                        :where [["foo" ?k ?v ?write]
-                               [?write :p79.crdt.space/write-time ?write-time]]})
+                               [?write :cemerick.splice/write-time ?write-time]]})
           [sr] (seq (q @src query))
           [tr] (seq (q @tgt query))]
       (is (= (butlast sr) (butlast tr)))

@@ -1,1 +1,1 @@
-{entity p79.crdt.space.types/entity ref p79.crdt.space.types/ref}
+{entity cemerick.splice.types/entity ref cemerick.splice.types/ref}

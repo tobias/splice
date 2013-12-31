@@ -3,7 +3,7 @@
   :url ""
   :license "proprietary"
   :resource-paths ["resources"]
-  :source-paths ["src/clj" "src/cljs"]
+  :source-paths ["src/cljx" "src/clj"] ;  "src/cljs"
   :test-paths ["test/cljx" "test/cljs" "test/clj" "target/test-classes"]
   :min-lein-version "2.0.0"
   :dependencies [[org.clojure/clojure "1.6.0-alpha3"]
@@ -32,7 +32,7 @@
                    :rules :cljs}]}
   
   :cljsbuild {:test-commands {"phantom" ["phantomjs" :runner "target/testable.js"]}
-              :builds [{:source-paths ["src/cljs" "target/classes" "target/test-classes"]
+              :builds [{:source-paths [ "target/classes" "target/test-classes"] ;"src/cljs"
                         :compiler {:output-to "target/testable.js"
                                    :optimizations :whitespace
                                    :pretty-print true}}]}
@@ -44,7 +44,7 @@
                              [com.cemerick/clojurescript.test "0.2.1"]
                              [com.cemerick/austin "0.1.3"]
                              [s3-wagon-private "1.1.2"]
-                             [com.keminglabs/cljx "0.3.2-SNAPSHOT"]]
+                             [com.keminglabs/cljx "0.3.2"]]
                    :aliases {
                               "sanity-check" ["with-profile" "sanity-check"
                                               "do" "clean," "cljsc," "compile"]

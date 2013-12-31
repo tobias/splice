@@ -1,10 +1,10 @@
-(ns p79.crdt.space.memory.indexing
+(ns cemerick.splice.memory.indexing
   (:require [cemerick.cljs.macro :refer (defportable *cljs* *clj*)]))
 
 (defmacro -index-comparator* [t t2 [k & tuple-keys]]
   (if-not k
     0
-    `(let [x# (p79.crdt.space.memory.query/compare-values (~k ~t) (~k ~t2))]
+    `(let [x# (cemerick.splice.memory.query/compare-values (~k ~t) (~k ~t2))]
        (if (zero? x#)
          (-index-comparator* ~t ~t2 ~tuple-keys)
          x#))))

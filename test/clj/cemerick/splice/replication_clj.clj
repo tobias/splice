@@ -1,9 +1,9 @@
-(ns p79.crdt.space.replication-clj
-  (:require [p79.crdt.space :as s :refer (write q)]
-            [p79.crdt.space.replication :as rep]
-            [p79.crdt.space.memory :as mem :refer (in-memory)]
+(ns cemerick.splice.replication-clj
+  (:require [cemerick.splice :as s :refer (write q)]
+            [cemerick.splice.replication :as rep]
+            [cemerick.splice.memory :as mem :refer (in-memory)]
             [clojure.java.io :as io]
-            [port79.uuid :refer (random-uuid)])
+            [cemerick.splice.uuid :refer (random-uuid)])
   (:use clojure.test))
 
 (defn- read-seq

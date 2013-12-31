@@ -1,5 +1,5 @@
-(ns port79.uuid
-  (:require [port79.hosty :refer (now current-time-ms)]))
+(ns cemerick.splice.uuid
+  (:require [cemerick.splice.hosty :refer (now current-time-ms)]))
 
 #+clj
 (defn uuid? [x] (instance? java.util.UUID x))

@@ -1,13 +1,13 @@
-(ns p79.crdt.space.basic-queries
-  (:require [p79.crdt.space :as s :refer (write q)]
-            [p79.crdt.space.types :refer (entity)]
-            [p79.crdt.space.memory :refer (in-memory)]
-            [p79.crdt.space.rank :as rank]
-            #+clj [p79.crdt.space.memory.planning :refer (plan)]
-            [port79.uuid :refer (time-uuid)]
+(ns cemerick.splice.basic-queries
+  (:require [cemerick.splice :as s :refer (write q)]
+            [cemerick.splice.types :refer (entity)]
+            [cemerick.splice.memory :refer (in-memory)]
+            [cemerick.splice.rank :as rank]
+            #+clj [cemerick.splice.memory.planning :refer (plan)]
+            [cemerick.splice.uuid :refer (time-uuid)]
             #+clj [clojure.test :refer :all]
             #+cljs [cemerick.cljs.test :as t])
-  #+cljs (:require-macros [p79.crdt.space.memory.planning :refer (plan)]
+  #+cljs (:require-macros [cemerick.splice.memory.planning :refer (plan)]
                           [cemerick.cljs.test :refer (deftest is are)]))
 
 (deftest basic-queries
@@ -92,18 +92,18 @@
       
       ; whole-tuple selection
       ;; cljs doesn't support alias-namespaced keywords (and https://github.com/jonase/kibit/issues/14) 
-      [[(s/coerce-tuple "y" :b "c" (-> space meta :p79.crdt.space/last-write) nil)]
-       [(s/coerce-tuple "y" :b 6 (-> s2 meta :p79.crdt.space/last-write) nil)]]
+      [[(s/coerce-tuple "y" :b "c" (-> space meta :cemerick.splice/last-write) nil)]
+       [(s/coerce-tuple "y" :b 6 (-> s2 meta :cemerick.splice/last-write) nil)]]
       {:select [?t]
        :where [["y" _ _ _ :as ?t]]}
-      [[6 (s/coerce-tuple "y" :b 6 (-> s2 meta :p79.crdt.space/last-write) nil)]]
+      [[6 (s/coerce-tuple "y" :b 6 (-> s2 meta :cemerick.splice/last-write) nil)]]
       {:select [?v ?t]
        :where [["y" _ ?v _ :as ?t]
                (-> ?t :v number?)]}
       
       ;; TODO this *should* work, but is bugged
       #_#_
-      [[#entity "x" 6 (s/coerce-tuple "y" :b 6 (-> s2 meta :p79.crdt.space/writes first) nil)]]
+      [[#entity "x" 6 (s/coerce-tuple "y" :b 6 (-> s2 meta :cemerick.splice/writes first) nil)]]
       {:select [?e ?v ?t]
        :where [["y" _ ?v _ :as ?t]
                (-> ?t :v number?)

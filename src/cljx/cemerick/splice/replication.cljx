@@ -1,7 +1,7 @@
-(ns p79.crdt.space.replication
-  (:require [p79.crdt.space :as s :refer (q write* tuple->vector)]
-            #+clj [p79.crdt.space.memory.planning :refer (plan)])
-  #+cljs (:require-macros [p79.crdt.space.memory.planning :refer (plan)]))
+(ns cemerick.splice.replication
+  (:require [cemerick.splice :as s :refer (q write* tuple->vector)]
+            #+clj [cemerick.splice.memory.planning :refer (plan)])
+  #+cljs (:require-macros [cemerick.splice.memory.planning :refer (plan)]))
 
 (defn- maybe-notify-write
   [config change-fn watch-key space-ref old-space space]
@@ -39,20 +39,20 @@ Each write is sent as a sequence of tuples."
 
 (defn write-change
   [source-space]
-  (when-let [write (-> source-space meta :p79.crdt.space/last-write)]
+  (when-let [write (-> source-space meta :cemerick.splice/last-write)]
     ;; TODO it's absurd that a query is mixed up in the middle of replication
     (let [tuples (q source-space (plan {:select [?t]
                                         :args [?write]
                                         :where [[_ _ _ ?write :as ?t]]})
                    write)]
-      ;; this :p79.crdt.space/last-write metadata isn't going to last long on this seq...
-      (with-meta (apply concat tuples) {:p79.crdt.space/last-write write}))))
+      ;; this :cemerick.splice/last-write metadata isn't going to last long on this seq...
+      (with-meta (apply concat tuples) {:cemerick.splice/last-write write}))))
 
 (defn write*-to-reference
   [target-space-reference write-tuples]
   ((replication-change-fn target-space-reference)
     target-space-reference write*
-    (-> write-tuples meta :p79.crdt.space/last-write)
+    (-> write-tuples meta :cemerick.splice/last-write)
     (remove #(isa? (:a %) s/unreplicated) write-tuples)))
 
 #+clj

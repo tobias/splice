@@ -1,6 +1,6 @@
-(ns p79.crdt.space.memory.planning
+(ns cemerick.splice.memory.planning
   (:require [cemerick.cljs.macro :refer (defportable *cljs* *clj*)]
-            [p79.crdt.space.memory.query :as query]
+            [cemerick.splice.memory.query :as query]
             [clojure.core.match :as match]
             [clojure.math.combinatorics :refer (cartesian-product)]
             [clojure.set :as set]

@@ -1,5 +1,4 @@
-(ns port79.hosty)
-
+(ns cemerick.splice.hosty)
 
 (defn system-hash
   [x]

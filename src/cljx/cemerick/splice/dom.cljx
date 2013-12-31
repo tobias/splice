@@ -1,14 +1,14 @@
-(ns p79.crdt.space.dom
-  (:require [p79.crdt.space :as s :refer (write q)]
-            [p79.crdt.space.types :refer (entity)]
-            [p79.crdt.space.rank :as rank]
-            [p79.crdt.space.replication :as rep]
-            [p79.crdt.space.memory :refer (in-memory)]
-            [p79.crdt.space.memory.query :refer (index-types)]
-            #+clj [p79.crdt.space.memory.planning :refer (plan)]
+(ns cemerick.splice.dom
+  (:require [cemerick.splice :as s :refer (write q)]
+            [cemerick.splice.types :refer (entity)]
+            [cemerick.splice.rank :as rank]
+            [cemerick.splice.replication :as rep]
+            [cemerick.splice.memory :refer (in-memory)]
+            [cemerick.splice.memory.query :refer (index-types)]
+            #+clj [cemerick.splice.memory.planning :refer (plan)]
             #+cljs cemerick.cljs.dom
             #+cljs [goog.dom :as dom])
-  #+cljs (:require-macros [p79.crdt.space.memory.planning :refer (plan)]
+  #+cljs (:require-macros [cemerick.splice.memory.planning :refer (plan)]
                           ; something jacked up in cljx that requires this?
                           [clojure.core :refer (some->)]))
 

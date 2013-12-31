@@ -1,4 +1,4 @@
-(ns p79.math)
+(ns cemerick.splice.math)
 
 (def MAX #+clj Double/MAX_VALUE #+cljs (.-MAX_VALUE js/Number))
 (def MIN #+clj Double/MIN_VALUE #+cljs (.-MIN_VALUE js/Number))

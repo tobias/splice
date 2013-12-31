@@ -1,6 +1,6 @@
-(ns p79.crdt.space.rank
-  #+clj (:require [p79.math :as math])
-  #+cljs (:require [p79.math :as math]
+(ns cemerick.splice.rank
+  #+clj (:require [cemerick.splice.math :as math])
+  #+cljs (:require [cemerick.splice.math :as math]
                    cljs.reader))
 
 ; This is a large N-way tree similar to the binary tree implementing a dense
@@ -51,7 +51,7 @@
   IPrintWithWriter
   #+cljs
   (-pr-writer [this w opts]
-    (-write w "#p79.crdt.space.types.Rank")
+    (-write w "#cemerick.splice.types.Rank")
     (-pr-writer [nums] w opts)))
 
 (defn rank? [x] (instance? Rank x))
@@ -75,7 +75,7 @@
   (if (rank? nums) nums (Rank. nums)))
 
 #+cljs
-(cljs.reader/register-tag-parser! 'p79.crdt.space.types.Rank rank)
+(cljs.reader/register-tag-parser! 'cemerick.splice.types.Rank rank)
 
 (defn- mean
   [x y]
