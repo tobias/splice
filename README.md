@@ -232,7 +232,12 @@ must obey these invariants:
 part of a write affect/inform a query.
 * Writes must be applied to the destination replica in the same order that
   they were applied to the source replica.  (This implies a partial order among all
-  writes in the system.)
+  writes in the system, and implicitly satisfies the weak causality required by
+  OR-sets per Shapiro et al. Though, practically speaking, even if a write that
+  contained a remove tuple was applied to a replica prior to the write that
+  contained the tuple to be removed, all contemplated query systems would be
+  unaffected by the violation of causality: until a remove tuple's complement
+  arrives, it is logically inert w.r.t. the set invariants.)
 
 Write entities must contain the following attributes:
 
