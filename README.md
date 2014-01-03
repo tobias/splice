@@ -2,10 +2,10 @@
 
 Like the elephant, Splice is many things, depending on where you touch it:
 
+* a masterless, distributed database
 * an Observed-Remove multimap CRDT that presents / implements query facilities
   via a datalog, supporting storage via ... (more to come, contributions
   welcome)
-* a masterless, distributed database
 * a medium for reifying operations into computable values that may be
   immediately replicated over arbitrary topologies and mechanisms to satisfy the
   communication requirements of globally distributed computational applications.
@@ -31,10 +31,10 @@ At the lowest level, each attribute/value entry in each entity is encoded as a
 _tuple_, the base unit of data in Splice:
 
 ```
-[eid attribute value write tid [remove-write remove-tid]]
+[eid attribute value write remove-write]
 ```
 
-The first five components of Splice tuples in the vector representation are
+The first four components of Splice tuples in the vector representation are
 mandatory; others are optional:
 
 * `eid` is the _globally-unique_ identifier of an entity, i.e. UUIDs.
@@ -47,14 +47,10 @@ mandatory; others are optional:
   write of which a given tuple was a part: tuples may only be added as part of a
   write, which may contain many tuples, and which is the unit of replication and
   distribution.  Each write entity carries metadata about the write.
-* `tid` is a scalar unique among all other `tid`s of tuples included in the
-  noted write.
 * Optional components:
-  * When present, `remove-write` and `remove-tid` must match an
-    existing tuple's `write` and `tid` components.  This correspondence
-    indicates the removal of the
-    attribute/value entry represented by the matching tuple.  See
-    ["Removals"](#removals) for details.
+  * `remove-write` must be an eid, an implicit reference to an write's entity.
+    This correspondence indicates the removal of the attribute/value entry
+    represented by the matching tuple.  See ["Removals"](#removals) for details.
 
 (Note that throughout this document, eids are represented as keywords prefixed
 with `e` or `w`
@@ -64,7 +60,7 @@ just for the sake of readability.)
 Splice tuples may be represented as a vector or as a map:
 
 ```
-[:e83 :name "Splice" :w55 1]
+[:e83 :name "Splice" :w55]
 ```
 
 is the same as:
@@ -73,8 +69,7 @@ is the same as:
 {:eid :e83
  :a :name
  :v "Splice"
- :write :w55
- :tid 1}
+ :write :w55}
 ```
 
 The latter is somewhat friendlier to the human eye, especially when many of the
@@ -83,18 +78,6 @@ the attributes of a tuple.  When represented as a map, any undefined optional
 components of a tuple are presumed to be `nil`; when represented as a vector,
 undefined components must be explicitly included as `nil` as necessary in order
 to maintain the positions of other defined components in the vector.
-
-### Identification
-
-Tuples may be uniquely identified in two ways:
-
-* by the combination of their `eid`, `attribute`, `value`, and `write`
-  components
-* by the combination of their `write` and `tid` components
-
-The latter (and specifically, the `tid` component) exists solely to support
-[removals](#removals) efficiently with regard to replication; the former is more
-properly the "natural identifier" of each tuple.
 
 ### Attributes
 
@@ -106,6 +89,8 @@ Re: keywords, need to define:
 * which are system-reserved (either all non-namespaced keywords, or all those
   under a particular namespace, or those that adhere to a particular convention
   [e.g. name starting with `_` or `-`?])
+  * defaulting to `db`-namespaced keywords right now, though I'm not fond of
+    aping Datomic there
 * which imply local-only, non-replication
 
 ### Value types
@@ -128,6 +113,12 @@ aggregates (e.g. the elements in a vector) individually
   a CRDT, but you can work around / sabotage the 'C' part of those semantics via
   ill-considered use of aggregate tuple values.)
 
+Note that all of the above also applies to any scalar that is decomposable and
+may be concurrently changed piece-wise.  e.g. storing the content of a document
+as a single string is just as bad as storing it as a single vector of
+characters, since different actors cannot sanely make concurrent changes to the
+document without coordination or consensus.
+
 See the [modeling](#modeling) section of this document for details on how to
 represent aggregates within Splice efficiently and without sabotaging the
 "conflict-free" semantics it provides.
@@ -138,39 +129,29 @@ TODO
 
 ### <a name="removals"></a> Removals
 
-Each tuple represents the addition/creation of a single attribute/value entry
+Each tuple represents either the addition or removal of a single attribute/value entry
 within the multimap entity 
 identified by its `eid`.  e.g. here is a tuple representing the `[:name "Jane"]`
-entry in entity `:e3` that was included in write `:w4` with a unique identifier
-within that write of `8`:
+entry in entity `:e3` that was included in write `:w4`:
 
-`[:e3 :name "Jane" :w4 8]`
+`[:e3 :name "Jane" :w4]`
 
-Removals of those entries are also represented by
-tuples.  If someone were to want to remove that entry from `:e3`, they would
-need to write out a tuple with:
-
-* The same `eid` and `attribute` components as the entry to be removed
-* a `value` of `nil`
-* a `remove-write` component equal to the `write` component of the entry to be
-  removed
-* a `remove-tid` component equal to the `tid` component of the entry to be
-  removed
-
-This tuple satisfies these constraints; when its write is applied to a Splice
+To remove that entry from `:e3`, another tuple would need to be written that
+identifies the same `eid`, `attribute`, and `value`, but has a `remove-write`
+component equal to the `write` component of the entry to be removed.  This tuple satisfies these constraints; when its write is applied to a Splice
 store that contains the "Jane" entry, that entry will be removed (it happens to
-have been a part of write `:w90` with a `tid` of `3`):
+have been a part of write `:w90`):
 
-`[:e3 :name nil :w90 3 :w4 8]`
+`[:e3 :name nil :w90 :w4]`
 
 Note that the same entry may have been added by multiple writes (typically
 corresponding to concurrent activity by multiple actors affecting disparate
 Splice databases that were actively or later replicated), e.g.:
 
 ```
-[:e3 :name "Jane" :w4 8]
-[:e3 :name "Jane" :w16 1]
-[:e3 :name "Jane" :w82 103]
+[:e3 :name "Jane" :w4]
+[:e3 :name "Jane" :w16]
+[:e3 :name "Jane" :w82]
 ```
 
 In order to logically remove a given entry, one must remove all known tuples
@@ -181,17 +162,22 @@ observed to assert the "Jane" entry, one must write out a corresponding set of
 remove tuples in order to fully remove it:
 
 ```
-[:e3 :name "Jane" :w90 1 :w4 8]
-[:e3 :name "Jane" :w90 1 :w16 1]
-[:e3 :name "Jane" :w90 1 :w82 103]
+[:e3 :name "Jane" :w90 :w4]
+[:e3 :name "Jane" :w90 :w16]
+[:e3 :name "Jane" :w90 :w82]
 ```
+
+(Replication protocols may batch these into a single "tuple" like
+`[:e3 :name "Jane" :w90 #{:w4 :w16 :w82}]` to minimize transmission costs, but
+all three tuples must be materialized w.r.t. query at destination replicas.)
  
 The "Jane" tuple could later (or concurrently) be re-added to the `:e3` entity;
 removing it would again require writing a remove tuple matching the addition
 tuple as described earlier.
 
 It is nonsensical to remove a removal tuple; doing so is effectively a no-op
-(though one will be able to query to find it).  To revert a removal, one must
+(though it is possible that one will be able to query to find a tuple
+attempting to remove a removal tuple).  To revert a removal, one must
 write a new tuple fully representing the desired entry.
 
 #### Removals, history, and immutability
@@ -242,7 +228,7 @@ part of a write affect/inform a query.
 Write entities must contain the following attributes:
 
 * wall-clock times
-  * original write
+  * original write `:db/otime`
   * local replication (not replicated!)
 * Reference to the identity of the writer
 * Number of tuples in the write (could be used to enforce atomicity of write
@@ -686,6 +672,7 @@ its sequential specification:
 
 ### Implementation(s)
 
+
 ## Design decision non sequiturs
 
 * Struggled a while thinking about how to best represent remove operations.  The
@@ -694,7 +681,10 @@ its sequential specification:
   shadowing it at read/query time, though an implementation might actually
   modify the removed tuple to indicate this so that it doesn't have to do
   subqueries to determine whether tuples that match query clauses have actually
-  been removed or not).  There are 3.5 ways to do this AFAICT:
+  been removed or not).  There is the further question of how to do this in a
+  way that leads to natural and efficient query.
+  
+  There are 3.5 approaches AFAICT:
 
   1. A remove tuple must include all components of the tuple to be removed. This
   is the most direct transliteration of the specification of OR-sets, but forces
@@ -723,15 +713,21 @@ its sequential specification:
       might be an acceptable cost vs. treble damages on removals if values need
       to be restated.
 
-  Option 1 would have made remove operations incredibly expensive, even in
-  common cases.  Option 2 is stupid-complicated, as is option 3.1.  Option 3.2
-  was selected because it imposes a minimial cost (to all tuples, unfortunately)
-  in order to avoid potential treble damages just because a user wanted to
-  remove an entry with a large value (that just multiply given multiple
-  tuples encoding the same logical entry).  _If necessary_, this decision can be
-  reverted to the simplest option (#1) via a straightforward "upgrade" operation
-  on any existing Splice databases (for all removal tuples, rm `tid`, set
-  `value` to the `value` of the entry each is removing).
+  Option 1 requires the re-statement of tuple values upon remove, at least when
+  replicating (whether a particular replica implements remove by storing the
+  tuple as transmitted or not is an implementation / optimization detail); this
+  could be very expensive when removing entries with large values.  Option 2 is
+  stupid-complicated, as is option 3.1.  Option 3.2 was briefly selected because
+  it imposes a minimial cost (to all tuples, unfortunately) in order to avoid
+  potential treble damages just because a user wanted to remove an entry with a
+  large value (that just multiply given multiple tuples encoding the same
+  logical entry).  However, it was eventually abandoned because it carries its
+  own complexity: tuples end up being identifiable in two different ways (`eavw`
+  as well as `w / tid`), and the use of the latter for removes implied a join
+  for _every_ tuple in order to determine if it was removed or not (something
+  that perhaps could be optimized away given suitably clever tuple storage
+  and/or query impl, but I don't want to require "clever" at this point).  Thus,
+  option 1 is selected.
 * Contemplated attempting to incorporate purging/excision into the tuple
   representation as a particular type of removal with specific operational
   (side-effecting) semantics, but abandoned the notion. The decision to require
@@ -770,8 +766,16 @@ moment, not an inherent data modeling question.
 ## Related work
 
 * Shapiro et al.
+  *
+    ["A comprehensive study of Convergent and Commutative Replicated Data Types"](http://hal.upmc.fr/docs/00/55/55/88/PDF/techreport.pdf)
 * Datomic
 * Linda / TupleSpaces
+  *
+  ["Linda in Context"](http://www.ece.rutgers.edu/~parashar/Classes/ece451-566/slides/carriero.pdf):
+  the first few pages are a cogent outline of what computation should be, modulo
+  some flawed premises (in particular, binding a particular model of computation
+  up with the particulars of the tuple space data model, and the implicit
+  selection of coordinated/exclusive writes via blocking `read`, etc)
 * Operational Transforms
 
 ## Thanks
