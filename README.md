@@ -129,18 +129,19 @@ TODO
 
 ### <a name="removals"></a> Removals
 
-Each tuple represents either the addition or removal of a single attribute/value entry
-within the multimap entity 
-identified by its `eid`.  e.g. here is a tuple representing the `[:name "Jane"]`
-entry in entity `:e3` that was included in write `:w4`:
+Each tuple represents either the addition or removal of a single attribute/value
+entry within the multimap entity identified by its `eid`.  e.g. here is a tuple
+representing the `[:name "Jane"]` entry in entity `:e3` that was included in
+write `:w4`:
 
 `[:e3 :name "Jane" :w4]`
 
 To remove that entry from `:e3`, another tuple would need to be written that
 identifies the same `eid`, `attribute`, and `value`, but has a `remove-write`
-component equal to the `write` component of the entry to be removed.  This tuple satisfies these constraints; when its write is applied to a Splice
-store that contains the "Jane" entry, that entry will be removed (it happens to
-have been a part of write `:w90`):
+component equal to the `write` component of the entry to be removed.  This tuple
+satisfies these constraints; when its write is applied to a Splice store that
+contains the "Jane" entry, that entry will be removed (it happens to have been a
+part of write `:w90`):
 
 `[:e3 :name nil :w90 :w4]`
 

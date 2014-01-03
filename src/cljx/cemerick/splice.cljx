@@ -15,67 +15,57 @@
 (def write-time ::write-time)
 (derive write-time unreplicated)
 
-(defn metadata? [tuple] (= (:e tuple) (:write tuple)))
+(defn throw-arg
+  [& msg]
+  (throw (#+clj IllegalArgumentException. #+cljs js/Error. (apply str msg))))
 
 (defprotocol AsTuples
   (as-tuples [x]))
 
-(defrecord Tuple [e a v write remove]
+; TODO should `e` be `eid`? It's not actually the _e_, it's an identifier.
+(defrecord Tuple [e a v write remove-write]
   AsTuples
   (as-tuples [this] [this]))
 
 (defn tuple? [x] (instance? Tuple x))
 
 (defn coerce-tuple
-  "Positional factory function for class cemerick.splice.Tuple
-that coerces any shortcut entity values to Entity instances.
-This fn should therefore always be used in preference to the Tuple. ctor.
-The 4-arg arity defaults [remove] to false."
-  ([e a v write] (coerce-tuple e a v write false))
-  ([e a v write remove]
-     (Tuple. (entity e) a v (entity write) (entity remove))))
+  "Positional factory function for class cemerick.splice.Tuple that coerces any
+implicit entity references to Entity instances.  This fn should therefore always
+be used in preference to the Tuple. ctor."
+  ([e a v write] (coerce-tuple e a v write nil))
+  ([e a v write remove-write]
+     (Tuple. (entity e) a v (entity write) (entity remove-write))))
 
 (let [tuple->vector* (juxt :e :a :v :write)]
   (defn tuple->vector
     [t]
     (let [v (tuple->vector* t)
-          remove (:remove t)]
+          remove (:remove-write t)]
       (if remove (conj v remove) v))))
-
-(defn throw-arg
-  [& msg]
-  (throw (#+clj IllegalArgumentException. #+cljs js/Error. (apply str msg))))
-
-(defn- seq->tuples
-  [ls]
-  (case (count ls)
-    (4 5) [(apply coerce-tuple ls)]
-    (throw-arg "Vector/list cannot be tuple-ized, bad size: " (count ls))))
 
 (defn- map->tuples
   [m]
-  (if-let [[_ e] (find m :db/id)]
-    (let [time (:db/time m)
-          s (seq (dissoc m :db/id))]
+  (if-let [[_ e] (find m :db/eid)]
+    (let [s (seq (dissoc m :db/eid))]
       (if s
         (mapcat (fn [[k v]]
                   (let [v (if (set? v) v #{v})]
                     (let [maps (filter map? v)
                           other (concat
                                   (remove map? v)
-                                  (map (comp entity :db/id) maps))]
+                                  (map (comp entity :db/eid) maps))]
                       (concat
                         (mapcat map->tuples maps)
                         (map (fn [v] (coerce-tuple e k v nil nil)) other)))))
           s)
         (throw-arg "Empty Map cannot be tuple-ized.")))
-    (throw-arg "Map cannot be tuple-ized, no :db/id")))
+    (throw-arg "Map cannot be tuple-ized, no :db/eid")))
 
 (extend-protocol AsTuples
   nil
-  (as-tuples [x] []))
+  (as-tuples [x] [])
 
-(extend-protocol AsTuples
   #+clj Object #+cljs default
   (as-tuples [x]
     (let [type (type x)
@@ -85,7 +75,7 @@ The 4-arg arity defaults [remove] to false."
                       ; must be a list/seq TODO file an issue/patch for that
                       (extend-type #+clj (identity type) #+cljs type
                         AsTuples
-                        (as-tuples [x] (seq->tuples x)))
+                        (as-tuples [x] (apply coerce-tuple x)))
                       (map? x)
                       (extend-type #+clj (identity type) #+cljs type
                         AsTuples
@@ -98,16 +88,9 @@ The 4-arg arity defaults [remove] to false."
         (throw-arg "No implementation of AsTuples available for " type)))))
 
 (defprotocol Space
-  (write* [this write-tag tuples] "Writes the given tuples to this space.")
-  
-  ;; don't expose until we know how to efficiently return indexes
-  ;; that incorporate the ambient time filter
-  ;; (can it be done, given that we need to keep existing index entries
-  ;; "live" for replicated updates from the past?)
-  #_
-  (as-of [this] [this time]
-         "Returns a new space restricted to tuples written prior to [time]."))
+  (write* [this write-tag tuples] "Writes the given tuples to this space."))
 
+; TODO this ::last-write bullshit is useless
 (defn update-write-meta
   [space write-tag]
   (vary-meta space assoc ::last-write write-tag))
@@ -127,7 +110,7 @@ a map of operation metadata, first converting it to tuples with `as-tuples`."
           _ (assert (not-any? :write tuples)
               (str "Data provided to `write` already has :write tag " (some :write tuples)))
           write (entity (time-uuid (.getTime time)))
-          op-meta (merge {:time time} op-meta {:db/id write})
+          op-meta (assoc op-meta :db/otime time :db/eid write)
           tuples (->> tuples
                    (concat (as-tuples op-meta))
                    (add-write-tag write))]
@@ -155,12 +138,12 @@ a map of operation metadata, first converting it to tuples with `as-tuples`."
 (def index-top (IndexTop.))
 
 (defn assign-map-ids
-  "Walks the provided collection, adding :db/id's to all maps that don't have one already."
+  "Walks the provided collection, adding :db/eid's to all maps that don't have one already."
   [m]
   (walk/postwalk
     (fn [x]
       (cond
         (not (map? x)) x
-        (:db/id x) x
-        :else (assoc x :db/id (random-uuid))))
+        (contains? x :db/eid) x
+        :else (assoc x :db/eid (random-uuid))))
     m))

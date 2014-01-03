@@ -11,9 +11,9 @@
                           [cemerick.cljs.test :refer (deftest is are)]))
 
 (deftest basic-queries
-  (let [s1 (write (in-memory) [{:a 6 :b 12 :db/id "x"}])
-        s2 (write s1 {:some-meta :p} [{:b 6 :db/id "y"}])
-        space (write s2 {:some-meta true} [{:b "c" :db/id "y"}])]
+  (let [s1 (write (in-memory) [{:a 6 :b 12 :db/eid "x"}])
+        s2 (write s1 {:some-meta :p} [{:b 6 :db/eid "y"}])
+        space (write s2 {:some-meta true} [{:b "c" :db/eid "y"}])]
     (are [result query] (= (set result) (set (q space (plan query))))
       [[#entity "x" 6]] {:select [?e ?v]
                          :where [[?e :b 12]
@@ -91,19 +91,18 @@
                               [[_ _ ?k] (range (/ ?v 3) -1 -1)]]}
       
       ; whole-tuple selection
-      ;; cljs doesn't support alias-namespaced keywords (and https://github.com/jonase/kibit/issues/14) 
-      [[(s/coerce-tuple "y" :b "c" (-> space meta :cemerick.splice/last-write) nil)]
-       [(s/coerce-tuple "y" :b 6 (-> s2 meta :cemerick.splice/last-write) nil)]]
+      [[(s/coerce-tuple "y" :b "c" (-> space meta ::s/last-write) nil)]
+       [(s/coerce-tuple "y" :b 6 (-> s2 meta ::s/last-write) nil)]]
       {:select [?t]
        :where [["y" _ _ _ :as ?t]]}
-      [[6 (s/coerce-tuple "y" :b 6 (-> s2 meta :cemerick.splice/last-write) nil)]]
+      [[6 (s/coerce-tuple "y" :b 6 (-> s2 meta ::s/last-write) nil)]]
       {:select [?v ?t]
        :where [["y" _ ?v _ :as ?t]
                (-> ?t :v number?)]}
       
       ;; TODO this *should* work, but is bugged
       #_#_
-      [[#entity "x" 6 (s/coerce-tuple "y" :b 6 (-> s2 meta :cemerick.splice/writes first) nil)]]
+      [[#entity "x" 6 (s/coerce-tuple "y" :b 6 (-> s2 meta ::s/writes first) nil)]]
       {:select [?e ?v ?t]
        :where [["y" _ ?v _ :as ?t]
                (-> ?t :v number?)
@@ -112,9 +111,9 @@
     ; entity-reference lookup/coercion / timestamp checks
     (is (neg? (apply compare (first (q space (plan {:select [?xtime ?ytime]
                                                     :where [["x" _ _ ?xwrite]
-                                                            [?xwrite :time ?xtime]
+                                                            [?xwrite :db/otime ?xtime]
                                                             ["y" :b "c" ?ywrite]
-                                                            [?ywrite :time ?ytime]]}))))))
+                                                            [?ywrite :db/otime ?ytime]]}))))))
     
     ; args
     (is (= #{[#entity "x" :b 12]} (q space (plan {:select [?e $a $v]
@@ -131,8 +130,8 @@
 ; TODO how is this working *AT ALL*?  
 (deftest composite-values
   (let [space (-> (in-memory)
-                (write [{:a [4 5 6] :b #{1 2 3} :db/id "x"}])
-                (write [{:c #{#{1 2 3}} :d #{7 8 9} :db/id "y"}]))]
+                (write [{:a [4 5 6] :b #{1 2 3} :db/eid "x"}])
+                (write [{:c #{#{1 2 3}} :d #{7 8 9} :db/eid "y"}]))]
     (are [result query] (= (set result) (set (q space (plan query))))
       [[1] [2] [3]] {:select [?v]
                      :where [[_ :b ?v]]}
@@ -155,8 +154,8 @@
 
 (deftest implicit-disjunctions
   (let [space (-> (in-memory)
-                (write [{:b #{1 2 3} :db/id "x"}])
-                (write [{:a #{4 5} :d #{7 8 9} :db/id "y"}]))]
+                (write [{:b #{1 2 3} :db/eid "x"}])
+                (write [{:a #{4 5} :d #{7 8 9} :db/eid "y"}]))]
     (are [result query] (= (set result) (set (q space (plan query))))
       [[:b] [:d]] {:select [?a]
                    :where [[_ ?a #{3 9}]]}
@@ -169,10 +168,10 @@
 
 (deftest subqueries
   (let [space (-> (in-memory)
-                (write [{:head true :ref #entity "y" :db/id "x"}
-                        {:x 1 :ref #entity "z" :db/id "y"}
-                        {:x 2 :ref #entity "a" :db/id "z"}
-                        {:x 3 :db/id "a"}]))]
+                (write [{:head true :ref #entity "y" :db/eid "x"}
+                        {:x 1 :ref #entity "z" :db/eid "y"}
+                        {:x 2 :ref #entity "a" :db/eid "z"}
+                        {:x 3 :db/eid "a"}]))]
     (is (= #{[#entity "x" #entity "y"] [#entity "x" #entity "z"] [#entity "x" #entity "a"]}
           (q space (plan {:select [?head ?c]
                           :args [?head]
@@ -242,7 +241,7 @@
                    :where #{[[?head :html/element ?el]]
                             [[?head :html/children ?ch]
                              [[?el] (recur ?ch)]]}})
-            (entity (:db/id html)))))))
+            (entity (:db/eid html)))))))
 
 (deftest html-attributes
   (let [space (write (in-memory) [html])]
@@ -287,10 +286,10 @@
                    :where #{[[?head :html/element ?el]]
                             [[?head :html/children ?ch]
                              [[?el] (recur ?ch)]]}})
-            (entity (:db/id m)))))))
+            (entity (:db/eid m)))))))
 
 (deftest deletes
-  (let [s (write (in-memory) [{:a #{"y" :x 1 2} :b #{2 4} :db/id "x"}])]
+  (let [s (write (in-memory) [{:a #{"y" :x 1 2} :b #{2 4} :db/eid "x"}])]
     (is (= #{[1] [2]} (q s (plan {:select [?v] :where [[_ :a ?v] (number? ?v)]}))))
     (let [attr-writes (q s (plan {:select [?a ?t] :where [[_ ?a 2 ?t]]}))
           remove-write (time-uuid)
@@ -307,7 +306,7 @@
                   (-> attr-writes first second)
                   (q s `{:select [?e ?a ?v ?r] :where [[?e ?a ?v ~remove-write ?r]]})])
       #_#_
-      (def i (s/index s [:e :a :v :write :remove]))
+      (def i (s/index s [:e :a :v :write :remove-write]))
       (def s s)
       ;(pp/pprint i)
       (are [result query] (= (set result) (set (q space (plan query))))

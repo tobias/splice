@@ -16,7 +16,7 @@
                                  ; need some busywork so that the write time of
                                  ; the replicated write is later
                                  #(do (reduce + (range 1e5)) %)))
-    (swap! src s/write [{:a 5 :db/id "foo"}])
+    (swap! src s/write [{:a 5 :db/eid "foo"}])
     (let [query (plan {:select [?k ?v ?write ?write-time]
                        :where [["foo" ?k ?v ?write]
                                [?write :cemerick.splice/write-time ?write-time]]})

@@ -20,7 +20,7 @@
   (let [src (agent (in-memory))
         tgt (agent (in-memory))]
     (rep/watch-changes src (comp (partial rep/write*-to-reference tgt) rep/write-change))
-    (send src s/write [{:a 5 :db/id "foo"}])
+    (send src s/write [{:a 5 :db/eid "foo"}])
     (await src tgt)
     (let [query '{:select [?k ?v ?write ?write-time]
                   :where [["foo" ?k ?v ?write]
@@ -35,7 +35,7 @@
         f (java.io.File/createTempFile "replication" ".tuples")]
     (rep/watch-changes src (comp (partial rep/tuples->disk (.getAbsolutePath f)) rep/write-change))
     (dotimes [x 1]
-      (swap! src s/write [{:a x :db/id (random-uuid)}]))
+      (swap! src s/write [{:a x :db/eid (random-uuid)}]))
     (let [replica (->> (read-seq (.getAbsolutePath f))
                     (map (partial apply s/coerce-tuple))
                     in-memory)]

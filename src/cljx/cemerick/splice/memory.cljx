@@ -34,21 +34,16 @@
   ([] (MemSpace. q/empty-indexes nil {}))
   ([init-tuples] (MemSpace. (add-tuples q/empty-indexes init-tuples) nil {})))
 
-;; TODO should this warn when it ends up having to plan a query at runtime?
+;; TODO requiring query planning at compile-time is a sham. See bakery.md
 (defn- ensure-planned
   [query]
   (if (-> query meta :planned)
     query
     #+clj (eval (quote-symbols (plan* query)))
-    ;; TODO this isn't entirely true; as long as a query has no predicate
-    ;; or function clauses, planning *can* be done at runtime in cljs.
-    ;; Just need to refactor the planning bits to be able to apply that in practice
     #+cljs (throw (js/Error. "Cannot plan query at runtime in ClojureScript"))))
 
 (extend-type MemSpace
   IndexedSpace
-  ;; TODO a good idea, but not compatible with compile-time query planning
-  ;; (available-indexes [this] (-> index-types keys set))
   (index [this index-type] ((.-indexes this) index-type))
   (q* [space query arg-values]
     (let [query (ensure-planned query)

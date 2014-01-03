@@ -23,20 +23,18 @@
               (compare x x2)
               (compare (str t1) (str t2))))))
 
-;; TODO Q: why does datomic have the indices that it has? Wouldn't one index
-;; per "column" (time, tag, e, a, v) take care of all query possibilities?
-;; (such an arrangement wouldn't yield covering indexes, for one)
-;; (We probably never want to index on v, at least to start.  I don't want to 
-;; think about 'schemas' yet...and, actually, indexing shouldn't be part of
-;; the 'schema' anyway...
-
 ;; as long as each index is complete, we can just keep covering indexes as
 ;; sorted sets (with comparators corresponding to the different sorts)
-(def index-types {[:e :a :v :write :remove] (index-comparator [:e :a :v :write :remove])
-                  [:a :e :v :write :remove] (index-comparator [:a :e :v :write :remove])
-                  [:a :v :e :write :remove] (index-comparator [:a :v :e :write :remove])
-                  [:write :a :e :v :remove] (index-comparator [:write :a :e :v :remove])
-                  [:v :a :e :write :remove] (index-comparator [:v :a :e :write :remove])})
+(def index-types {[:e :a :v :write :remove-write]
+                  (index-comparator [:e :a :v :write :remove-write])
+                  [:a :e :v :write :remove-write]
+                  (index-comparator [:a :e :v :write :remove-write])
+                  [:a :v :e :write :remove-write]
+                  (index-comparator [:a :v :e :write :remove-write])
+                  [:write :a :e :v :remove-write]
+                  (index-comparator [:write :a :e :v :remove-write])
+                  [:v :a :e :write :remove-write]
+                  (index-comparator [:v :a :e :write :remove-write])})
 
 (def available-indexes (-> index-types keys set))
 
@@ -117,8 +115,8 @@
   [space index-keys match-vector binding-vector whole-tuple-binding]
   (let [index (index space index-keys)
         ;; TODO this should *warn*, not throw, and just do a full scan
-        ;; TODO further, if we know at query-compile-time what indexes are
-        ;; available (do we?), then we can warn/fail at that point, not here
+        ;; TODO further, if we know at query-planning-time what indexes are
+        ;; available (do we?), then we can warn there, not here
         _ (when (nil? index)
             (throw (#+clj IllegalArgumentException. #+cljs js/Error.
                      (str "No index available for " match-vector))))
@@ -130,11 +128,11 @@
                                 (let [v2 (k match-tuple)]
                                   (or (variable? v2) (= v v2))))))
       ;; TODO need to be able to disable this filtering for when we want to 
-      ;; match / join with :remove values
+      ;; match / join with :remove-write values
       (reduce
         (fn [s t]
-          (if-let [r (:remove t)]
-            (disj s (assoc t :write r :remove nil))
+          (if-let [r (:remove-write t)]
+            (disj s (assoc t :write r :remove-write nil))
             (conj s t)))
         #{})
       (map #(reduce (fn [match [tuple-key binding]]
