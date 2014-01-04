@@ -1,5 +1,6 @@
 (ns cemerick.splice.replication-local
-  (:require [cemerick.splice :as s :refer (write q)]
+  (:require [cemerick.splice :as s :refer (write)]
+            [cemerick.splice.memory.query :refer (q)]
             [cemerick.splice.replication :as rep]
             [cemerick.splice.memory :as mem :refer (in-memory)]
             #+clj [cemerick.splice.memory.planning :refer (plan)]

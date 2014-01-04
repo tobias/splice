@@ -1,5 +1,6 @@
 (ns cemerick.splice.basic-queries
-  (:require [cemerick.splice :as s :refer (write q)]
+  (:require [cemerick.splice :as s :refer (write)]
+            [cemerick.splice.memory.query :refer (q)]
             [cemerick.splice.types :refer (entity)]
             [cemerick.splice.memory :refer (in-memory)]
             [cemerick.splice.rank :as rank]
@@ -109,11 +110,11 @@
                [?e :b ?v]]})
     
     ; entity-reference lookup/coercion / timestamp checks
-    (is (neg? (apply compare (first (q space (plan {:select [?xtime ?ytime]
-                                                    :where [["x" _ _ ?xwrite]
-                                                            [?xwrite :db/otime ?xtime]
-                                                            ["y" :b "c" ?ywrite]
-                                                            [?ywrite :db/otime ?ytime]]}))))))
+    (is (not (pos? (apply compare (first (q space (plan {:select [?xtime ?ytime]
+                                                         :where [["x" _ _ ?xwrite]
+                                                                 [?xwrite :db/otime ?xtime]
+                                                                 ["y" :b "c" ?ywrite]
+                                                                 [?ywrite :db/otime ?ytime]]})))))))
     
     ; args
     (is (= #{[#entity "x" :b 12]} (q space (plan {:select [?e $a $v]
@@ -292,11 +293,10 @@
   (let [s (write (in-memory) [{:a #{"y" :x 1 2} :b #{2 4} :db/eid "x"}])]
     (is (= #{[1] [2]} (q s (plan {:select [?v] :where [[_ :a ?v] (number? ?v)]}))))
     (let [attr-writes (q s (plan {:select [?a ?t] :where [[_ ?a 2 ?t]]}))
-          remove-write (time-uuid)
           remove-tuples (map
-                          (fn [[attr write]] (s/coerce-tuple "x" attr 2 remove-write write))
+                          (fn [[attr write]] (s/coerce-tuple "x" attr 2 nil write))
                           attr-writes)
-          space (s/write* s remove-write remove-tuples)]
+          space (s/write s remove-tuples)]
       
       ;; TODO it would be great to be able to write this query and have it work
       ;; need to eventually figure out how to (automatically?) selectively disable

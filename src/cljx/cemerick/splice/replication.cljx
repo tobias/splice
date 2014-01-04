@@ -1,5 +1,6 @@
 (ns cemerick.splice.replication
-  (:require [cemerick.splice :as s :refer (q write* tuple->vector)]
+  (:require [cemerick.splice :as s :refer (write* tuple->vector)]
+            [cemerick.splice.memory.query :refer (q)]
             #+clj [cemerick.splice.memory.planning :refer (plan)])
   #+cljs (:require-macros [cemerick.splice.memory.planning :refer (plan)]))
 
@@ -52,7 +53,6 @@ Each write is sent as a sequence of tuples."
   [target-space-reference write-tuples]
   ((replication-change-fn target-space-reference)
     target-space-reference write*
-    (-> write-tuples meta :cemerick.splice/last-write)
     (remove #(isa? (:a %) s/unreplicated) write-tuples)))
 
 #+clj

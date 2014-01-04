@@ -1,7 +1,5 @@
 (ns cemerick.splice.memory
-  #+clj (:require [cemerick.splice.memory.planning :refer (plan plan* quote-symbols)])
-  #+cljs (:require-macros [cemerick.splice.memory.planning :refer (plan plan*)])
-  (:require [cemerick.splice :as s :refer (Space IndexedSpace)]
+  (:require [cemerick.splice :as s :refer (TupleStore)]
             [cemerick.splice.memory.query :as q]
             [cemerick.splice.hosty :refer (now)]
             [clojure.set :as set]))
@@ -23,34 +21,23 @@
   #+clj (withMeta [this meta] (MemSpace. indexes as-of meta))
   #+cljs IWithMeta
   #+cljs (-with-meta [this meta] (MemSpace. indexes as-of meta))
-  Space
-  (write* [this write-tag tuples]
-    (let [tuples (cons (s/coerce-tuple write-tag s/write-time (now) write-tag) tuples)]
-      (MemSpace.
-        (add-tuples indexes tuples)
-        as-of metadata))))
+  TupleStore
+  (available-indexes [this] (set (keys indexes)))
+  (write* [this tuples]
+    (MemSpace.
+     (let [write (:write (first tuples))]
+       ; TODO janky; need to make very clear the distinction between local
+       ; writes and replicated writes
+       ; TODO should local-only post-replication metadata (i.e. local wall-clock
+       ; time of the application of a replicated write to the local set) go in
+       ; its *own* write? Probably, lest we muck with tuple counts and
+       ; signatures to come.
+       (add-tuples indexes (cons (s/coerce-tuple write s/write-time (now) write) tuples)))
+     as-of metadata))
+  (scan [this index-spec beg end]
+    (let [index (indexes index-spec)]
+      (subseq index >= beg <= end))))
 
 (defn in-memory
   ([] (MemSpace. q/empty-indexes nil {}))
   ([init-tuples] (MemSpace. (add-tuples q/empty-indexes init-tuples) nil {})))
-
-;; TODO requiring query planning at compile-time is a sham. See bakery.md
-(defn- ensure-planned
-  [query]
-  (if (-> query meta :planned)
-    query
-    #+clj (eval (quote-symbols (plan* query)))
-    #+cljs (throw (js/Error. "Cannot plan query at runtime in ClojureScript"))))
-
-(extend-type MemSpace
-  IndexedSpace
-  (index [this index-type] ((.-indexes this) index-type))
-  (q* [space query arg-values]
-    (let [query (ensure-planned query)
-          args (zipmap (:args query) arg-values)
-          matches (q/query space query #{args})]
-      (->> matches
-        (map (apply juxt (:select query)))
-        ;; TODO we can do this statically
-        (remove (partial some nil?))
-        set))))

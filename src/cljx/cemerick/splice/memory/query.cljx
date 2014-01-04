@@ -1,7 +1,7 @@
 (ns cemerick.splice.memory.query
   #+clj (:require [cemerick.splice.memory.indexing :refer (index-comparator)])
   #+cljs (:require-macros [cemerick.splice.memory.indexing :refer (index-comparator)])
-  (:require [cemerick.splice :as s :refer (->Tuple index)]
+  (:require [cemerick.splice :as s :refer (->Tuple)]
             [cemerick.splice.types :refer (entity)]
             [clojure.set :as set]))
 
@@ -31,8 +31,12 @@
                   (index-comparator [:a :e :v :write :remove-write])
                   [:a :v :e :write :remove-write]
                   (index-comparator [:a :v :e :write :remove-write])
+                  ; TODO not convinced this is necessary / useful; more
+                  ; importantly, it's the only index where remove tuples are not
+                  ; co-located with the tuples they negate
                   [:write :a :e :v :remove-write]
-                  (index-comparator [:write :a :e :v :remove-write])
+                  (index-comparator [:a :e :v :write :remove-write])
+                  ; TODO this should only be available for reference values...
                   [:v :a :e :write :remove-write]
                   (index-comparator [:v :a :e :write :remove-write])})
 
@@ -101,47 +105,39 @@
               (assoc t k wildcard)))
     t t))
 
-(defn match-index*
-  [index match-tuple]
-  (subseq index
-    >= (sortable-match-tuple match-tuple s/index-bottom)
-    <= (sortable-match-tuple match-tuple s/index-top)))
-
-(defn match-index
-  [index match-vector]
-  (match-index* index (match-tuple match-vector)))
-
 (defn- match*
   [space index-keys match-vector binding-vector whole-tuple-binding]
-  (let [index (index space index-keys)
-        ;; TODO this should *warn*, not throw, and just do a full scan
-        ;; TODO further, if we know at query-planning-time what indexes are
-        ;; available (do we?), then we can warn there, not here
-        _ (when (nil? index)
-            (throw (#+clj IllegalArgumentException. #+cljs js/Error.
-                     (str "No index available for " match-vector))))
-        binding-tuple (coerce-match-tuple (match-tuple binding-vector))
+  ;; TODO this should *warn*, not throw, and just do a full scan
+  ;; TODO further, if we know at query-planning-time what indexes are
+  ;; available (do we?), then we can warn there, not here
+  (when-not (contains? (s/available-indexes space) index-keys)
+    (throw (#+clj IllegalArgumentException. #+cljs js/Error.
+                  (str "No index available for " match-vector))))
+  (let [binding-tuple (coerce-match-tuple (match-tuple binding-vector))
         match-tuple (coerce-match-tuple (match-tuple match-vector))
         slot-bindings (filter (comp binding? val) binding-tuple)]
-    (->> (match-index* index match-tuple)
-      (filter (partial every? (fn [[k v]]
-                                (let [v2 (k match-tuple)]
-                                  (or (variable? v2) (= v v2))))))
-      ;; TODO need to be able to disable this filtering for when we want to 
-      ;; match / join with :remove-write values
-      (reduce
-        (fn [s t]
-          (if-let [r (:remove-write t)]
-            (disj s (assoc t :write r :remove-write nil))
-            (conj s t)))
-        #{})
-      (map #(reduce (fn [match [tuple-key binding]]
-                      (assoc match binding (tuple-key %)))
-              (if whole-tuple-binding
-                {whole-tuple-binding %}
-                {})
-              slot-bindings))
-      set)))
+    (->> (s/scan space index-keys
+                 (sortable-match-tuple match-tuple s/index-bottom)
+                 (sortable-match-tuple match-tuple s/index-top))
+         (filter (partial every? (fn [[k v]]
+                                   (let [v2 (k match-tuple)]
+                                     (or (variable? v2) (= v v2))))))
+         ;; TODO need to be able to disable this filtering for when we want to 
+         ;; match / join with :remove-write values
+         (reduce
+          (fn [[ts rm] t]
+            (if-let [r (:remove-write t)]
+              [ts (conj rm (assoc t :write r :remove-write nil))]
+              [(conj ts t) rm]))
+          [#{} #{}])
+         (#(apply set/difference %))
+         (map #(reduce (fn [match [tuple-key binding]]
+                         (assoc match binding (tuple-key %)))
+                       (if whole-tuple-binding
+                         {whole-tuple-binding %}
+                         {})
+                       slot-bindings))
+         set)))
 
 (defn match
   [space previous-matches {:keys [index clause bindings whole-tuple-binding] :as clause-plan}]
@@ -184,3 +180,24 @@
                       (set/join results)))))
     results
     (:where q)))
+
+;; TODO requiring query planning at compile-time is a sham. See bakery.md
+#_
+(defn- ensure-planned
+  [query]
+  (if (-> query meta :planned)
+    query
+    #+clj (eval (quote-symbols (plan* query)))
+    #+cljs (throw (js/Error. "Cannot plan query at runtime in ClojureScript"))))
+
+(defn q
+  "Queries this space, returning a seq of results per the query's specification"
+  [space {:keys [select planner args subs where] :as query} & arg-values]
+  (let [;query (ensure-planned query)
+        args (zipmap (:args query) arg-values)
+        matches (#'query space query #{args})]
+    (->> matches
+         (map (apply juxt (:select query)))
+         ;; TODO we can do this statically
+         (remove (partial some nil?))
+         set)))

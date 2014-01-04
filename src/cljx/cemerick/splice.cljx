@@ -11,6 +11,7 @@
   #+cljs (:require-macros cemerick.splice.types)
   (:refer-clojure :exclude (replicate)))
 
+;; TODO this is stupid
 (def unreplicated ::unreplicated)
 (def write-time ::write-time)
 (derive write-time unreplicated)
@@ -87,8 +88,18 @@ be used in preference to the Tuple. ctor."
         (as-tuples x)
         (throw-arg "No implementation of AsTuples available for " type)))))
 
-(defprotocol Space
-  (write* [this write-tag tuples] "Writes the given tuples to this space."))
+(defprotocol TupleStore
+  ; will always return the same set until query planning is no longer compile-time-only
+  (available-indexes [this]
+    "Returns a set of index 'specs' (vectors of keywords corresponding to tuple
+     slots) representing the indexes that this TupleStore provides.")
+  (write* [this tuples]
+    "Writes the given tuples to the TupleStore.  It is assumed that the tuples
+     constitute a single \"write\".")
+  (scan [this index-spec beg end]
+    "Returns a (potentially lazy) seq of tuples that lie between the provided
+    [beg]inning and [end] tuples, inclusive. Throws an exception if the
+    requested [index-spec] is not available."))
 
 ; TODO this ::last-write bullshit is useless
 (defn update-write-meta
@@ -115,22 +126,8 @@ a map of operation metadata, first converting it to tuples with `as-tuples`."
                    (concat (as-tuples op-meta))
                    (add-write-tag write))]
       (-> this
-        (write* write tuples)
+        (write* tuples)
         (update-write-meta write)))))
-
-; TODO is there ever any reason to distinguish between a Space and an
-; IndexedSpace? What's the gd point if the tuplespace isn't indexed?
-
-(defprotocol IndexedSpace
-  ;; TODO a good idea, but not compatible with compile-time query planning
-  ;(available-indexes [this])
-  (index [this index-type])
-  (q* [this query args]
-     "Queries this space, returning a seq of results per the query's specification"))
-
-(defn q
-  [space {:keys [select planner args subs where] :as query} & arg-values]
-  (q* space query arg-values))
 
 (deftype IndexBottom [])
 (deftype IndexTop [])
