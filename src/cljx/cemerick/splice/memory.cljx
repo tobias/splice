@@ -31,7 +31,7 @@
        ; TODO should local-only post-replication metadata (i.e. local wall-clock
        ; time of the application of a replicated write to the local set) go in
        ; its *own* write? Probably, lest we muck with tuple counts and
-       ; signatures to come.
+       ; signatures.
        (add-tuples indexes (cons (s/coerce-tuple write s/write-time (now) write) tuples)))
      as-of metadata))
   (scan [this index-spec beg end]

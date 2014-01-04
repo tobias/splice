@@ -192,12 +192,12 @@
 
 (defn q
   "Queries this space, returning a seq of results per the query's specification"
-  [space {:keys [select planner args subs where] :as query} & arg-values]
-  (let [;query (ensure-planned query)
-        args (zipmap (:args query) arg-values)
-        matches (#'query space query #{args})]
+  [space {:keys [select planner args subs where] :as q} & arg-values]
+  (let [;query (ensure-planned q)
+        args (zipmap (:args q) arg-values)
+        matches (query space q #{args})]
     (->> matches
-         (map (apply juxt (:select query)))
+         (map (apply juxt (:select q)))
          ;; TODO we can do this statically
          (remove (partial some nil?))
          set)))

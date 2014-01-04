@@ -1,6 +1,7 @@
 (ns cemerick.splice.replication-clj
   (:require [cemerick.splice :as s :refer (write)]
             [cemerick.splice.memory.query :refer (q)]
+            [cemerick.splice.memory.planning :refer (plan*)]
             [cemerick.splice.replication :as rep]
             [cemerick.splice.memory :as mem :refer (in-memory)]
             [clojure.java.io :as io]
@@ -26,8 +27,8 @@
     (let [query '{:select [?k ?v ?write ?write-time]
                   :where [["foo" ?k ?v ?write]
                           [?write ::s/write-time ?write-time]]}
-          [sr] (seq (q @src query))
-          [tr] (seq (q @tgt query))]
+          [sr] (seq (q @src (plan* query)))
+          [tr] (seq (q @tgt (plan* query)))]
       (is (= (butlast sr) (butlast tr)))
       (is (pos? (compare (last tr) (last sr)))))))
 
