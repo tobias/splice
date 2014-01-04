@@ -55,6 +55,11 @@
                                               [[?e :b 6]]}}
       [[#entity "y" :p] [#entity "x" 6]] {:select [?e ?v]
                                           :where [[?e :b]
+                                                  ; TODO need to propagate
+                                                  ; knowledge of ?e bidning into
+                                                  ; planning of disjunction so
+                                                  ; that [?e _ _ ?t] can have an
+                                                  ; index assigned to it
                                                   #{[[?e :a ?v]]
                                                     [[?t :some-meta ?v]
                                                      ; TODO this pattern should

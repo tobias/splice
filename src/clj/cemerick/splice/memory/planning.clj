@@ -14,16 +14,18 @@
 (defn- expression-clause? [x] (or (predicate-clause? x) (function-clause? x)))
 
 (defn- pick-index
-  [index-keys clause]
-  (let [bound-keys (set (for [[k v] (query/match-tuple clause)
+  [index-keys bound-clause original-clause]
+  (let [bound-keys (set (for [[k v] (query/match-tuple bound-clause)
                               :when (and (not (= '_ v))
                                       (not (query/binding? v)))]
                           k))
         [prefix best-index] (->> index-keys
                               (map #(vector (count (take-while bound-keys %)) %))
                               (apply max-key first))]
-    (when (pos? prefix)
-      (with-meta best-index {:score prefix}))))
+    (if (pos? prefix)
+      (with-meta best-index {:score prefix})
+      (binding [*out* *err*]
+        (println "WARNING: No index available for clause" original-clause)))))
 
 (defn- clause-bindings
   "Same as `free-variables`, but excludes _ and works with match vectors as
@@ -136,13 +138,13 @@ well as expression clauses."
           [[_ _ _ _ ':as whole-tuple-binding]]
           (let [bound-clause (subvec bound-clause 0 4)]
             {:bound-clause bound-clause
-             :index (pick-index query/available-indexes bound-clause)
+             :index (pick-index query/available-indexes bound-clause clause)
              :op :match
              :clause (subvec clause 0 4)
              :whole-tuple-binding whole-tuple-binding})
           
           :else {:bound-clause bound-clause
-                 :index (pick-index query/available-indexes bound-clause)
+                 :index (pick-index query/available-indexes bound-clause clause)
                  :op :match})))
     
     :else (throw (IllegalArgumentException. (str "Invalid clause: " clause)))))

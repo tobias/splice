@@ -31,14 +31,16 @@
                   (index-comparator [:a :e :v :write :remove-write])
                   [:a :v :e :write :remove-write]
                   (index-comparator [:a :v :e :write :remove-write])
-                  ; TODO not convinced this is necessary / useful; more
-                  ; importantly, it's the only index where remove tuples are not
-                  ; co-located with the tuples they negate
-                  [:write :a :e :v :remove-write]
-                  (index-comparator [:a :e :v :write :remove-write])
                   ; TODO this should only be available for reference values...
                   [:v :a :e :write :remove-write]
-                  (index-comparator [:v :a :e :write :remove-write])})
+                  (index-comparator [:v :a :e :write :remove-write])
+                  ;; this index is (*maybe*) only useful for driving replication
+                  ;; can never be used for "regular" queries, as its organization
+                  ;; means that remove tuples are not colocated with the tuples
+                  ;; they remove, so results can be incorrect
+                  #_#_
+                  [:write :a :e :v :remove-write]
+                  (index-comparator [:a :e :v :write :remove-write])})
 
 (def available-indexes (-> index-types keys set))
 
@@ -107,16 +109,16 @@
 
 (defn- match*
   [space index-keys match-vector binding-vector whole-tuple-binding]
-  ;; TODO this should *warn*, not throw, and just do a full scan
-  ;; TODO further, if we know at query-planning-time what indexes are
-  ;; available (do we?), then we can warn there, not here
-  (when-not (contains? (s/available-indexes space) index-keys)
+  (when (and index-keys (not (contains? (s/available-indexes space) index-keys)))
     (throw (#+clj IllegalArgumentException. #+cljs js/Error.
-                  (str "No index available for " match-vector))))
+                  (str "Planned index " index-keys " is not available in TupleSet"))))
   (let [binding-tuple (coerce-match-tuple (match-tuple binding-vector))
         match-tuple (coerce-match-tuple (match-tuple match-vector))
         slot-bindings (filter (comp binding? val) binding-tuple)]
-    (->> (s/scan space index-keys
+    (->> (s/scan space
+                 (or ((s/available-indexes space) index-keys)
+                     ; TODO probably should just use (first available-indexes)?
+                     [:e :a :v :write :remove-write])
                  (sortable-match-tuple match-tuple s/index-bottom)
                  (sortable-match-tuple match-tuple s/index-top))
          (filter (partial every? (fn [[k v]]
