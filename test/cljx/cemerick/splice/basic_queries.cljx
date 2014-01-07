@@ -16,7 +16,7 @@
         s2 (write s1 {:some-meta :p} [{:b 6 :db/eid "y"}])
         space (write s2 {:some-meta true} [{:b "c" :db/eid "y"}])]
     (are [result query] (= (set result) (set (q space (plan query))))
-      [[#entity "x" 6]] {:select [?e ?v]
+      [[(entity "x") 6]] {:select [?e ?v]
                          :where [[?e :b 12]
                                  [?e :a ?v]]}
       ; entity-position coercion
@@ -27,9 +27,9 @@
               :where [["x" ?a 6]]}
       
       ; result narrowing
-      [[#entity "x"] [#entity "y"]] {:select [?e]
+      [[(entity "x")] [(entity "y")]] {:select [?e]
                                      :where [[?e :b]]}
-      [[#entity "x"]] {:select [?e]
+      [[(entity "x")]] {:select [?e]
                        :where [[?e :b]
                                [?e :a 6]]}
       [[:a] [:b]] {:select [?a]
@@ -42,7 +42,7 @@
       [[true] [:p]] {:select [?some-meta]
                      :where [["y" _ _ ?t]
                              [?t :some-meta ?some-meta]]}
-      [[#entity "y" true] [#entity "y" :p]] {:select [?e ?some-meta]
+      [[(entity "y") true] [(entity "y") :p]] {:select [?e ?some-meta]
                                              :where [[?t :some-meta ?some-meta]
                                                      [?e :b _ ?t]]}
       
@@ -50,10 +50,10 @@
       [] {:select [?e ?v] :where [[?e :b 6]]}
       
       ; disjunction
-      [[#entity "x"] [#entity "y"]] {:select [?e]
+      [[(entity "x")] [(entity "y")]] {:select [?e]
                                      :where #{[[?e :b 12]]
                                               [[?e :b 6]]}}
-      [[#entity "y" :p] [#entity "x" 6]] {:select [?e ?v]
+      [[(entity "y") :p] [(entity "x") 6]] {:select [?e ?v]
                                           :where [[?e :b]
                                                   ; TODO need to propagate
                                                   ; knowledge of ?e bidning into
@@ -71,10 +71,10 @@
                                                      (keyword? ?v)]}]}
       
       ; predicate expressions
-      [[#entity "y" "c"]] {:select [?e ?v]
+      [[(entity "y") "c"]] {:select [?e ?v]
                            :where [(string? ?v)
                                    [?e :b ?v]]}
-      [[#entity "y" 6 "c"]] {:select [?e ?v ?s]
+      [[(entity "y") 6 "c"]] {:select [?e ?v ?s]
                              :where [(number? ?v)
                                      (== (inc ?v) 7)
                                      [?e :b ?v]
@@ -108,7 +108,7 @@
       
       ;; TODO this *should* work, but is bugged
       #_#_
-      [[#entity "x" 6 (s/coerce-tuple "y" :b 6 (-> s2 meta ::s/writes first) nil)]]
+      [[(entity "x") 6 (s/coerce-tuple "y" :b 6 (-> s2 meta ::s/writes first) nil)]]
       {:select [?e ?v ?t]
        :where [["y" _ ?v _ :as ?t]
                (-> ?t :v number?)
@@ -122,7 +122,7 @@
                                                                  [?ywrite :db/otime ?ytime]]})))))))
     
     ; args
-    (is (= #{[#entity "x" :b 12]} (q space (plan {:select [?e $a $v]
+    (is (= #{[(entity "x") :b 12]} (q space (plan {:select [?e $a $v]
                                                   :args [$a $v]
                                                   :where [[?e $a $v]]})
                                     :b 12)))
@@ -135,28 +135,23 @@
 
 ; TODO how is this working *AT ALL*?  
 (deftest composite-values
-  (let [space (-> (in-memory)
-                (write [{:a [4 5 6] :b #{1 2 3} :db/eid "x"}])
-                (write [{:c #{#{1 2 3}} :d #{7 8 9} :db/eid "y"}]))]
+  (let [space (write (in-memory) [{:a [4 5 6] :b #{1 2 3} :db/eid "x"}])]
+
+    (is (thrown? #+clj Error #+cljs js/Error
+                 (write space [{:c #{#{1 2 3}} :db/eid "y"}])))
+    
     (are [result query] (= (set result) (set (q space (plan query))))
-      [[1] [2] [3]] {:select [?v]
-                     :where [[_ :b ?v]]}
-      
-      [[#{1 2 3}]] {:select [?v]
-                    :where [[_ :c ?v]]}
-      
-      [[:b]] {:select [?a]
-              :where [[_ ?a 3]]}
-      
-      ;; TODO vector and set values aren't working yet
-      
-      #_#_
-      [[:a]] '{:select [?a]
-               :where [[_ ?a [1 2 3]]]}
-      #_#_
-      [[:c]] '{:select [?a]
-               :where [[_ ?a #{#{1 2 3}}]]}
-      )))
+         [[1] [2] [3]] {:select [?v]
+                        :where [[_ :b ?v]]}
+         
+         [[:b]] {:select [?a]
+                 :where [[_ ?a 3]]}
+         
+         ;; TODO vector values aren't working yet, open question of whether we
+         ;; actually want them to or not, anyway
+         #_#_
+         [[:a]] '{:select [?a]
+                  :where [[_ ?a [1 2 3]]]})))
 
 (deftest implicit-disjunctions
   (let [space (-> (in-memory)
@@ -169,16 +164,16 @@
       [[1] [2] [3]] {:select [?v]
                      :where [["x" #{:a :b :t} ?v]]}
       
-      [[#entity "y"]] {:select [?e]
+      [[(entity "y")]] {:select [?e]
                        :where [[?e #{:a :d} #{1 4}]]})))
 
 (deftest subqueries
   (let [space (-> (in-memory)
-                (write [{:head true :ref #entity "y" :db/eid "x"}
-                        {:x 1 :ref #entity "z" :db/eid "y"}
-                        {:x 2 :ref #entity "a" :db/eid "z"}
+                (write [{:head true :ref (entity "y") :db/eid "x"}
+                        {:x 1 :ref (entity "z") :db/eid "y"}
+                        {:x 2 :ref (entity "a") :db/eid "z"}
                         {:x 3 :db/eid "a"}]))]
-    (is (= #{[#entity "x" #entity "y"] [#entity "x" #entity "z"] [#entity "x" #entity "a"]}
+    (is (= #{[(entity "x") (entity "y")] [(entity "x") (entity "z")] [(entity "x") (entity "a")]}
           (q space (plan {:select [?head ?c]
                           :args [?head]
                           :subs {:walk {:select [?c]
@@ -187,9 +182,9 @@
                                                  [[?p :ref ?ch]
                                                   [[?c] (q :walk ?ch)]]}}}
                           :where [[[?c] (q :walk ?head)]]})
-            #entity "x")))
+            (entity "x"))))
     
-    (is (= #{[#entity "a" 3] [#entity "y" 1] [#entity "z" 2]}
+    (is (= #{[(entity "a") 3] [(entity "y") 1] [(entity "z") 2]}
           (q space
             (plan {:select [?c ?x]
                    :args [?head]
@@ -200,7 +195,7 @@
                                           [[?p :ref ?ch]
                                            [[?c ?x] (q :walk ?ch)]]}}}
                    :where [[[?c ?x] (q :walk ?head)]]})
-            #entity "x")
+            (entity "x"))
           
           ;; direct-recur
           (q space
@@ -210,19 +205,22 @@
                              [?c :x ?x]]
                             [[?p :ref ?ch]
                              [[?c ?x] (recur ?ch)]]}})
-            #entity "x")))))
+            (entity "x"))))))
 
 ; <p><em class="title" id="name">x</em><span>y</span></p>
+; TODO yeesh, need some convenience for using particular types (e.g. ranks) as
+; values of particular entries
 (def html (s/assign-map-ids
             {:html/element :p
-             :html/rank (rank/rank [])
+             :html/rank rank/origin*
              :html/children #{{:html/element :em
-                               :html/rank (rank/rank (rank/before* []))
+                               :html/rank (str (rank/before rank/origin))
                                :html/attrs #{[:class "title"]
-                                             [:id "name"]}                               :html/children {:html/text "x"}}
+                                             [:id "name"]}
+                               :html/children {:html/text "x"}}
                               {:html/element :span
                                :html/attrs [:class "foo"]
-                               :html/rank (rank/rank (rank/after* []))
+                               :html/rank (str (rank/after rank/origin))
                                :html/children {:html/text "y"}}}}))
 
 (deftest html-subqueries
