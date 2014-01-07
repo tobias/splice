@@ -1,102 +1,72 @@
 (ns cemerick.splice.rank-test
   (:require [cemerick.splice.rank :refer (rank between) :as rank]
             [cemerick.splice.math :as math]
-            [cemerick.cljs.test :as t])
+            [cemerick.cljs.test :as t]
+            simple-check.core
+            #+clj [simple-check.clojure-test :as qc]
+            [simple-check.properties #+clj :refer #+clj (for-all)]
+            [simple-check.clojure-test.runtime :as qcrt]
+            [simple-check.generators :as gen])
   #+clj (:use clojure.test)
-  #+cljs (:require-macros [cemerick.cljs.test :refer (deftest is are)]))
+  #+cljs (:require-macros [simple-check.properties :refer (for-all)]
+                          [simple-check.clojure-test :as qc]
+                          [cemerick.cljs.test :refer (deftest are is)]))
 
-(def rank-compare #+clj #'rank/rank-compare #+cljs rank/rank-compare)
+#+clj (set! *warn-on-reflection* true)
 
-(deftest definitional
-  (are [compare-result r1 r2] (and (== compare-result (rank-compare r1 r2))
-                                  (== (- compare-result) (rank-compare r2 r1)))
-    0 [] []
-    0 [] [0]
-    
-    0 [42] [42]
-    
-    -1 [] [2]
-    1 [2] []
-    1 [2] [-2]
-    
-    1 [1 2 3] [1 2 1]
-    -1 [1 2 -3] [1 2 1]
-    
-    1 [1 2 3] [1 2 0]
-    0 [1 2 3] [1 2 3 0]
-    1 [1 2 3] [1 2 3 -1]
-    -1 [1 2 3] [1 2 3 1]))
+#+clj (.doReset #'qcrt/*report-trials* qcrt/trial-report-periodic)
+#+clj (.doReset #'qcrt/*report-shrinking* true)
+#+cljs (set! qcrt/*report-trials* qcrt/trial-report-periodic)
+#+cljs (set! qcrt/*report-shrinking* true)
 
-(deftest equality
-  (is (= (rank [1 2]) (rank [1 2])))
-  (is (not= (rank [1 2]) (rank [1 1])))
-  (is (not= (rank [1 2]) 5)))
+(def number-trials
+  #+clj (Long/parseLong (System/getProperty "quickcheck-times" "10000"))
+  #+cljs (js/parseInt (or (aget js/window "quickcheck_times") "10000")))
 
-(deftest explicit-between
-  #+cljs (is (thrown? js/Error (rank/between* [] [])))
-  #+clj (is (thrown? AssertionError (rank/between* [] [])))
-  #+cljs (is (thrown? js/Error (rank/between* [1 2 3] [1 2 3])))
-  #+clj (is (thrown? AssertionError (rank/between* [1 2 3] [1 2 3])))
-  (are [r1 r2 between] (and (= (rank/between* r1 r2)
-                              (rank/between* r2 r1)
-                              between)
-                         (let [[low high] (if (== -1 (rank-compare r1 r2))
-                                            [r1 r2]
-                                            [r2 r1])]
-                           (== -1 (rank-compare between high))
-                           (== 1 (rank-compare high between))
-                           (== -1 (rank-compare low between))
-                           (== 1 (rank-compare between low))))
-    [] rank/HIGH [8.988465674311579E307]
-    rank/LOW [] [-8.988465674311579E307]
-    rank/LOW rank/HIGH (conj rank/LOW 1)
-    
-    [(- math/MIN)] [math/MIN] [0.0]
-    [(- math/MIN)] [] [(- math/MIN) 1]
-    
-    [] [math/MIN] [0 1]
-    
-    [0] [1] [0.5]
-    [-1] [1] [0.0]
-    [1 2] [1 2 3] [1 2 1.5]
-    [] [1] [0.5]
-    [1 2] [1 1 1 1 2] [1 1.5]
-    
-    ))
+(deftest range-contracts
+  (is (thrown? #+clj Exception #+cljs js/Error (rank/before (rank rank/LOW))))
+  (is (thrown? #+clj Exception #+cljs js/Error (rank/after (rank rank/HIGH))))
+  (is (thrown? #+clj Exception #+cljs js/Error (rank/before (rank ""))))
+  (is (thrown? #+clj Exception #+cljs js/Error (rank/after (rank ""))))
+  (is (thrown? #+clj Exception #+cljs js/Error (rank/between (rank rank/HIGH) (rank rank/LOW))))
+  (is (thrown? #+clj Exception #+cljs js/Error (rank/between (rank "a") (rank "a"))))
 
-#_#_#_#_#_
-(def generated-cnt 1000)
-(def between-cnt 50)
+  (is (= "foo" (str (rank "foo")))))
 
-(deftest random-between-generation
-  (doseq [x (repeatedly generated-cnt rand)
-            :when (pos? x)
-            :let [seed (rank x)
-                  anchor (rand-nth [0 1])
-                  [comp-fn comparison-result] (if (> x anchor)
-                                                [rank/rank> 1]
-                                                [rank/rank< -1])
-                  anchor (rank anchor)
-                  ranks (take between-cnt (iterate (partial between anchor) seed))
-                  ranks (concat ranks [anchor])]]
-    (is (apply comp-fn ranks) [seed anchor comp-fn])
-    (doseq [pair (partition 2 1 ranks)]
-      (is (== comparison-result (apply compare pair)) pair))))
+(def gen-rank-code-points (gen/choose (inc rank/low-code) (dec rank/high-code)))
 
-(defn- random-double
-  "Generates a random double in the range [-1e-200 1e200]"
-  []
-  (* (rand) (Math/pow 10 (- (rand-int 400) 200))))
+(def gen-rank (gen/fmap rank (gen/such-that seq (gen/vector gen-rank-code-points))))
 
-(deftest comparisons
-  (doseq [numbers (->> (repeatedly random-double)
-                    (partition 2)
-                    (take generated-cnt))
-          :let [ranks (map rank numbers)
-                ncomp (apply compare numbers)]]
-    (is (= ncomp (apply compare ranks)) (str numbers ranks))
-    (let [comp-fn (cond
-                    (pos? ncomp) rank/rank>
-                    (neg? ncomp) rank/rank<
-                    :default =)]
-      (is (apply comp-fn ranks)))))
+(defn- in-order?
+  [ranks]
+  (boolean (reduce
+            (fn [r1 r2]
+              (let [s (rank/sign (compare r1 r2))]
+                (if (and (neg? s) (== s (- (rank/sign (compare r2 r1)))))
+                 r2
+                 (reduced false))))
+            (first ranks)
+            (rest ranks))))
+
+(defn- rank-spec
+  [start]
+  (let [before (rank/before start)
+        after (rank/after start)
+        between-low (rank/between (rank rank/LOW) start)
+        between-high (rank/between start (rank rank/HIGH))]
+    (and (in-order? [before start after])
+         (in-order? [between-low start between-high]))))
+
+(defn- rank-between-spec
+  [a b]
+  (let [between (rank/between a b)]
+    (let [[a b] (if (pos? (compare a b))
+                  [b a] [a b])]
+      (in-order? [a between b]))))
+
+(qc/defspec rank-basics number-trials
+  (for-all [a gen-rank b gen-rank]
+           (or (= a b)
+               (and (rank-spec a)
+                    (rank-spec b)
+                    (rank-between-spec a b)))))

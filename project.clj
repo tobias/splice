@@ -37,9 +37,7 @@
                                    :optimizations :whitespace
                                    :pretty-print true}}]}
   
-  :profiles {:dev {:dependencies [[com.cemerick/pomegranate "0.0.13"
-                                   :exclusions [org.apache.httpcomponents/httpcore]]
-                                  [org.clojure/clojurescript "0.0-2127"]]
+  :profiles {:dev {:dependencies [[com.cemerick/double-check "0.5.4-SNAPSHOT"]]
                    :plugins [[lein-cljsbuild "1.0.0-alpha2"]
                              [com.cemerick/clojurescript.test "0.2.1"]
                              [com.cemerick/austin "0.1.3"]

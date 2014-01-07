@@ -1,66 +1,65 @@
 (ns cemerick.splice.rank
-  #+clj (:require [cemerick.splice.math :as math])
-  #+cljs (:require [cemerick.splice.math :as math]
-                   cljs.reader))
+  #+cljs (:require cljs.reader))
 
-; This is a large N-way tree similar to the binary tree implementing a dense
-; ordered set described in Shapiro et al.
+; This is a wide N-way "tree" similar to the binary tree implementing a dense
+; ordered set described in Letia et al.
 ; "CRDTs: Consistency without concurrency control" (http://arxiv.org/abs/0907.0929)
-; that should be shallow enough to remain efficient for all known use cases
+; that generates strings that have a collation order equivalent to the partial order
+; of the trees they represent.
+; These identifiers should be shallow/small enough to remain efficient for all
+; known use cases, esp. if intermediate structure (DOM, etc) is in place.
 
-(defn- pad
-  [x y]
-  (list (concat x (repeat (- (count y) (count x)) 0))
-        (concat y (repeat (- (count x) (count y)) 0))))
+; stuff copied from sedan; TODO get this and similar bits into a shared lib
+(defn- char-code [^String s idx] (#+clj .codePointAt #+cljs .charCodeAt s idx))
+(defn- char-code-seq [s] (map #(char-code s %) (range (count s))))
+(defn sign
+  [^long x]
+  (if (zero? x) 0 (/ x (Math/abs x))))
 
-(defn- rank-compare
-  [ns ns2]
-  (or (->> (pad ns ns2)
-        (apply map compare)
-        (some #{1 -1}))
-    0))
-
-(deftype Rank [nums]
+(deftype Rank [string]
   #+clj
   Comparable
   #+clj
-  (compareTo [this x] (rank-compare nums (.-nums ^Rank x)))
+  (compareTo [this x] (compare string (.-string ^Rank x)))
   #+clj
   Object
   #+clj
-  (toString [x] (pr-str x))
+  (toString [x] string)
   #+clj
-  (hashCode [this] (inc (hash nums)))
+  (hashCode [this] (inc (hash string)))
   #+clj
   (equals [this x]
     (and (instance? Rank x)
-      (= nums (.-nums ^Rank x))))
+      (= string (.-string ^Rank x))))
+  #+cljs
+  Object
+  #+cljs
+  (toString [this] string)
   #+cljs
   IComparable
   #+cljs
-  (-compare [this x] (rank-compare nums (.-nums x)))
+  (-compare [this x] (compare string (.-string x)))
   #+cljs
   IHash
   #+cljs
-  (-hash [this] (inc (hash nums)))
+  (-hash [this] (inc (hash string)))
   #+cljs
   IEquiv
   #+cljs
-  (-equiv [x y] (= nums (.-nums y)))
+  (-equiv [x y] (= string (.-string y)))
   #+cljs
   IPrintWithWriter
   #+cljs
   (-pr-writer [this w opts]
-    (-write w "#cemerick.splice.types.Rank")
-    (-pr-writer [nums] w opts)))
+    (-write w "#cemerick.splice.rank.Rank")
+    (-pr-writer [string] w opts)))
 
 (defn rank? [x] (instance? Rank x))
-(defn- nums [rank] (.-nums ^Rank rank))
 
 #+clj
 (defmethod print-method Rank [^Rank x ^java.io.Writer w]
   (.write w (str "#" (.getName Rank)))
-  (print-method [(.-nums x)] w))
+  (print-method (vec (char-code-seq (.-string x))) w))
 #+clj
 (defmethod print-dup Rank [o w] (print-method o w))
 #+clj (require 'clojure.pprint)
@@ -71,44 +70,107 @@
   #'clojure.pprint/pprint-simple-default)
 
 (defn rank
-  [nums]
-  (if (rank? nums) nums (Rank. nums)))
+  [string]
+  (cond
+   (rank? string) string
+   (string? string) (Rank. string)
+   (sequential? string) (Rank. (apply str (map char string)))
+   :else (throw (ex-info (str "Cannot create Rank from value of type " (type string))
+                         {:input string}))))
 
 #+cljs
-(cljs.reader/register-tag-parser! 'cemerick.splice.types.Rank rank)
+(cljs.reader/register-tag-parser! 'cemerick.splice.rank.Rank rank)
 
-(defn- mean
-  [x y]
-  ; not just (/ (+ x y) 2.0) to minimize overflow
-  (+ x (/ (- y x) 2.0)))
+; could just as easily use a different range (topping out at 0xd7ff perhaps?)
+; this keeps every component in each rank in the 2-byte UTF-8 range. Can be
+; changed later at any time if testing determines a better top-line / default
+; midpoint/origin.
+(def low-code 0)
+(def high-code 0x07ff)
+(def LOW (str (char low-code)))
+(def HIGH (str (char high-code)))
 
-(def LOW [(- math/MAX)])
-(def HIGH [math/MAX])
+; Will need to instrument / repeat typical writing behaviour across many users /
+; corpora in order to determine "optimal" starting point for new levels in the
+; tree (perhaps repeat Letia's experiments w/ wikipedia changesets?).
+(def ^:private new-branch-origin-code 0x400)
+(def ^:private new-branch-origin-code-char (char new-branch-origin-code))
 
+(defn- midpoint-prefix
+  [prefix high-char-code]
+  (if (<= (dec high-char-code) low-code)
+    (str prefix (char low-code) new-branch-origin-code-char)
+    (str prefix (char (long (/ high-char-code 2))))))
+
+(defn- midpoint-diff
+  [prefix low-suffix high-suffix]
+  (let [ln (count low-suffix)
+        hn (count high-suffix)]
+    (loop [i 0]
+      (cond
+       (== i ln)
+       (str prefix low-suffix (char low-code) new-branch-origin-code-char)
+       (== i hn)
+       (let [c (inc (char-code low-suffix i))]
+         (if (== c high-code)
+           (str prefix (subs low-suffix 0 i) HIGH new-branch-origin-code-char)
+           (str prefix (subs low-suffix 0 i) (char c))))
+       :else
+       (let [lc (char-code low-suffix i)
+             hc (char-code high-suffix i)
+             diff (- hc lc)]
+         (if (<= (Math/abs diff) 1)
+           (recur (inc i))
+           (str prefix (subs low-suffix 0 i) (char (+ lc (Math/abs (long (/ diff 2))))))))))))
+
+(def origin* (str new-branch-origin-code-char))
+
+; TODO pretty sure the body of this fn is close to being order-insensitive...
 (defn between*
-  [nx ny]
-  (let [c (rank-compare nx ny)]
-    (assert (not (zero? c)) "Cannot generate rank between equivalent ranks")
-    (let [[nx ny] (if (== -1 c) [nx ny] [ny nx])]
-      (loop [i 0]
-        (let [x (nth nx i 0)
-              y (nth ny i 0)]
-          (if (= x y)
-            (recur (inc i))
-            (let [z (mean x y)]
-              (if (or (== z x) (== z y) (== z math/INF) (== z math/-INF))
-                (if (nth nx i nil)
-                  (conj nx 1)
-                  (into nx [0 1]))
-                (conj (subvec nx 0 i) z)))))))))
+  [low high]
+  (cond
+   (or (= low "") (= high "")) (throw (ex-info "Empty string is an invalid endpoint" {}))
+   (= high LOW) (throw (ex-info "Cannot generate rank that is less than LOW" {}))
+   (= low HIGH) (throw (ex-info "Cannot generate rank that is greater than HIGH" {}))
+   
+   :else
+   (let [ln (count low)
+         hn (count high)
+         len (min ln hn)]
+     (loop [i 0]
+       (if-not (== i len)
+         (let [lc (char-code low i)
+               hc (char-code high i)]
+           (cond
+            (== lc hc) (recur (inc i))
+            (< lc hc) (midpoint-diff (subs low 0 i) (subs low i) (subs high i))
+            :else (midpoint-diff (subs high 0 i) (subs high i) (subs low i))))
+         (if (and (== len ln) (== len hn))
+           (throw (ex-info "Cannot generate rank between equivalent strings"
+                           {:low low :high high}))
+           (if (== len ln)
+             (midpoint-prefix low (char-code high i))
+             (midpoint-prefix high (char-code low i)))))))))
 
-(defn before* [x] (between* LOW x))
-(defn after* [x] (between* x HIGH))
+(defn before*
+  [s]
+  (when (= s "") (throw (ex-info "Empty string is an invalid endpoint" {})))
+  (let [lc-pos (dec (count s))
+        lc (char-code s lc-pos)]
+    (if (< (- lc 2) low-code)
+      (between* LOW s)
+      (str (subs s 0 lc-pos) (char (dec lc))))))
 
-(def before (comp rank before* nums))
-(def after (comp rank after* nums))
+(defn after*
+  [s]
+  (when (= s "") (throw (ex-info "Empty string is an invalid endpoint" {})))
+  (let [lc-pos (dec (count s))
+        lc (char-code s lc-pos)]
+    (if (> (+ lc 2) high-code)
+      (between* s HIGH)
+      (str (subs s 0 lc-pos) (char (inc lc))))))
 
-(defn between
-  [rank1 rank2]
-  (rank (between (nums rank1) (nums rank2))))
-
+(def origin (rank origin*))
+(defn before [^Rank rank] (Rank. (before* (.-string rank))))
+(defn after [^Rank rank] (Rank. (after* (.-string rank))))
+(defn between [^Rank a ^Rank b] (Rank. (between* (.-string a) (.-string b))))
