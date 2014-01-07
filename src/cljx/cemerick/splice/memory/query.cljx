@@ -3,25 +3,8 @@
   #+cljs (:require-macros [cemerick.splice.memory.indexing :refer (index-comparator)])
   (:require [cemerick.splice :as s :refer (->Tuple)]
             [cemerick.splice.types :refer (entity)]
+            cemerick.sedan ; used by index-comparator
             [clojure.set :as set]))
-
-(defn- compare-values
-  [x x2]
-  (cond
-    ;; TODO probably safe to make these comparisons identical?
-    (= s/index-bottom x) -1
-    (= s/index-bottom x2) 1
-    (= s/index-top x) 1
-    (= s/index-top x2) -1
-    ;; all we're doing here is stratifying values of different types, then
-    ;; ordering as with compare for each grouping
-    ;; TODO we should be using sedan for all comparisons (whether in-memory or not?
-    ;;   at least for the type comparisons, anyway)
-    :else (let [t1 (type x)
-                t2 (type x2)]
-            (if (identical? t1 t2)
-              (compare x x2)
-              (compare (str t1) (str t2))))))
 
 ;; as long as each index is complete, we can just keep covering indexes as
 ;; sorted sets (with comparators corresponding to the different sorts)

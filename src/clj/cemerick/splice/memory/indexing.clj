@@ -4,7 +4,7 @@
 (defmacro -index-comparator* [t t2 [k & tuple-keys]]
   (if-not k
     0
-    `(let [x# (cemerick.splice.memory.query/compare-values (~k ~t) (~k ~t2))]
+    `(let [x# (cemerick.sedan/compare (~k ~t) (~k ~t2))]
        (if (zero? x#)
          (-index-comparator* ~t ~t2 ~tuple-keys)
          x#))))

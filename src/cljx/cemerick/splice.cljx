@@ -2,6 +2,7 @@
   (:require [cemerick.splice.types :refer (entity)]
             [cemerick.splice.hosty :refer (now current-time-ms)]
             [cemerick.splice.uuid :refer (time-uuid random-uuid)]
+            [cemerick.sedan :as sedan]
             [clojure.set :as set]
             [clojure.walk :as walk]
             #+clj [clojure.pprint :as pp])
@@ -129,10 +130,8 @@ a map of operation metadata, first converting it to tuples with `as-tuples`."
         (write* tuples)
         (update-write-meta write)))))
 
-(deftype IndexBottom [])
-(deftype IndexTop [])
-(def index-bottom (IndexBottom.))
-(def index-top (IndexTop.))
+(def index-bottom sedan/bottom)
+(def index-top sedan/top)
 
 (defn assign-map-ids
   "Walks the provided collection, adding :db/eid's to all maps that don't have one already."
