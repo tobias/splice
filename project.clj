@@ -35,7 +35,8 @@
   :cljsbuild {:test-commands {"phantom" ["phantomjs" :runner "target/testable.js"]}
               :builds [{:source-paths ["target/classes" "target/test-classes"] ;"src/cljs"
                         :compiler {:output-to "target/testable.js"
-                                   :optimizations :whitespace
+                                   :optimizations :advanced
+                                   ; :source-map "target/testable.js.map"
                                    :libs [""]
                                    :pretty-print true}}]}
   

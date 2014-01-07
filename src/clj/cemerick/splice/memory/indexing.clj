@@ -17,7 +17,9 @@
          (compare [_# t# t2#]
            (-index-comparator* t# t2# ~tuple-keys)))
        {:index-keys ~tuple-keys})
-    `(~'with-meta
+    ; using a fn with metadata as a comparator in sets doesn't work in CLJS w/ :advanced
+    ; TODO file ticket/fix
+    `(identity ;~'with-meta
        (~'fn [t# t2#]
          (-index-comparator* t# t2# ~tuple-keys))
-       {:index-keys ~tuple-keys})))
+       #_{:index-keys ~tuple-keys})))
