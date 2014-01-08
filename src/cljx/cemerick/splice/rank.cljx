@@ -1,11 +1,14 @@
 (ns cemerick.splice.rank
   #+cljs (:require cljs.reader))
 
-; This is a wide N-way "tree" similar to the binary tree implementing a dense
-; ordered set described in Letia et al.
-; "CRDTs: Consistency without concurrency control" (http://arxiv.org/abs/0907.0929)
-; that generates strings that have a collation order equivalent to the partial order
-; of the trees they represent.
+; This is an implementation of identifiers suitable for distinguishing values
+; within a partially-ordered set.  Technically, strings representing locations
+; in a wide N-way "tree" similar to the "treedoc" binary tree described in Letia
+; et al.  "CRDTs: Consistency without concurrency control"
+; (http://arxiv.org/abs/0907.0929) and Preguiça et al. "A commutative replicated
+; data type for cooperative editing"
+; (http://hal.inria.fr/docs/00/44/59/75/PDF/icdcs09-treedoc.pdf).
+
 ; These identifiers should be shallow/small enough to remain efficient for all
 ; known use cases, esp. if intermediate structure (DOM, etc) is in place.
 
