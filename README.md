@@ -127,6 +127,8 @@ represent aggregates within Splice efficiently and without sabotaging the
 
 TODO
 
+Need distinction between inclusive references and simple links
+
 ### <a name="removals"></a> Removals
 
 Each tuple represents either the addition or removal of a single attribute/value
@@ -207,7 +209,10 @@ _Replication_ is the (potentially bidirectional) transmission of
 tuples from one store to another, called _replicas_.  The objective is to bring
 the "destination" replica's cumulative state up to date with that of the
 "source" replica's, subject to particulars of replication policy, access
-control, and optimizations that do not affect the semantics of e.g. query.
+control, and optimizations that do not affect the semantics of e.g. query. (Note
+that replication policies may not cause a violation in the atomic write
+invariant, i.e. access control policies may not cause only part of a write to be
+replicated.)
 
 Splice does not (yet) define its own replication algorithms or transports
 (though it does implement a few); the intention is that any suitable replication
