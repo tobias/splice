@@ -51,6 +51,8 @@
                                               "do" "clean," "cljsc," "compile"]
                               "quicktest" ["do" "clean," "cljx" "once,"
                                            "test," "cljsbuild" "test"]
+                              "cljs-quicktest" ["do", "clean," "cljx" "once,"
+                                                "cljsbuild" "test"]
                               "cleantest" ["with-profile" "rigorous" "quicktest"]}}
              :sanity-check {:aot :all}
              ; pushes the number of trials run in tests up to some (conservative) absurd level

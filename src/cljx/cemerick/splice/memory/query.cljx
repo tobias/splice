@@ -21,7 +21,6 @@
                   ;; can never be used for "regular" queries, as its organization
                   ;; means that remove tuples are not colocated with the tuples
                   ;; they remove, so results can be incorrect
-                  #_#_
                   [:write :a :e :v :remove-write]
                   (index-comparator [:a :e :v :write :remove-write])})
 

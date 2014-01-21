@@ -14,8 +14,6 @@
 
 ;; TODO this is stupid
 (def unreplicated ::unreplicated)
-(def write-time ::write-time)
-(derive write-time unreplicated)
 
 (defn throw-arg
   [& msg]
@@ -31,11 +29,11 @@
 
 (defn tuple? [x] (instance? Tuple x))
 
-(defn coerce-tuple
+(defn tuple
   "Positional factory function for class cemerick.splice.Tuple that coerces any
 implicit entity references to Entity instances.  This fn should therefore always
 be used in preference to the Tuple. ctor."
-  ([e a v write] (coerce-tuple e a v write nil))
+  ([e a v write] (tuple e a v write nil))
   ([e a v write remove-write]
      (Tuple. (entity e) a v (entity write) (entity remove-write))))
 
@@ -59,7 +57,7 @@ be used in preference to the Tuple. ctor."
                                   (map (comp entity :db/eid) maps))]
                       (concat
                         (mapcat map->tuples maps)
-                        (map (fn [v] (coerce-tuple e k v nil nil)) other)))))
+                        (map (fn [v] (tuple e k v nil nil)) other)))))
           s)
         (throw-arg "Empty Map cannot be tuple-ized.")))
     (throw-arg "Map cannot be tuple-ized, no :db/eid")))
@@ -77,7 +75,7 @@ be used in preference to the Tuple. ctor."
                       ; must be a list/seq TODO file an issue/patch for that
                       (extend-type #+clj (identity type) #+cljs type
                         AsTuples
-                        (as-tuples [x] (apply coerce-tuple x)))
+                        (as-tuples [x] (apply tuple x)))
                       (map? x)
                       (extend-type #+clj (identity type) #+cljs type
                         AsTuples
@@ -100,35 +98,64 @@ be used in preference to the Tuple. ctor."
   (scan [this index-spec beg end]
     "Returns a (potentially lazy) seq of tuples that lie between the provided
     [beg]inning and [end] tuples, inclusive. Throws an exception if the
-    requested [index-spec] is not available."))
-
-; TODO this ::last-write bullshit is useless
-(defn update-write-meta
-  [space write-tag]
-  (vary-meta space assoc ::last-write write-tag))
+    requested [index-spec] is not available.")
+  (rscan [this index-spec beg end]
+    "Returns a (potentially lazy) seq of tuples that lie between the provided
+    [beg]inning and [end] tuples, inclusive, in reverse order. Throws an
+    exception if the requested [index-spec] is not available."))
 
 (defn- add-write-tag
   [write tuples]
   (for [t tuples]
-    (if (:write t) t (assoc t :write write))))
+    (if (:write t) t (assoc t :write write)))) 
+
+(defrecord Placeholder [temp-eid])
+(defn peid [temp-eid] (Placeholder. temp-eid))
+(defn placeholder? [p] (instance? Placeholder p))
+
+(defn placeholders->eids
+  "Replaces all placeholders with eids based on the [site-id] and
+[last-write-num] of the replica to which the tuples will be written.  Equivalent
+placeholders will be replaced with the same eid."
+  [site-id last-write-num tuples]
+  (let [eids (atom {})
+        last-write-num (atom last-write-num)
+        tuples (doall
+                (map #(reduce
+                        (fn [t slot]
+                          (let [v (slot t)]
+                            (if-not (placeholder? v)
+                              t
+                              (assoc t slot (or (@eids v)
+                                                (let [eid [site-id (swap! last-write-num inc)]]
+                                                  (swap! eids assoc v eid)
+                                                  eid))))))
+                        %
+                        [:e :write])
+                       tuples))]
+    [@last-write-num tuples]))
+
+(defn prep-write
+  [op-meta data]
+  (let [time (now)
+        tuples (mapcat as-tuples data)
+        _ (assert (not-any? :write tuples)
+                  (str "Data provided to `write` already has :write tag " (some :write tuples)))
+        write (peid (gensym "write"))
+        op-meta (assoc op-meta :db/otime time :db/eid write)
+        tuples (->> tuples
+                    (concat (as-tuples op-meta))
+                    (add-write-tag write))]
+    [write tuples]))
 
 (defn write
   "Writes the given data to this space optionally along with tuples derived from
 a map of operation metadata, first converting it to tuples with `as-tuples`."
   ([this data] (write this nil data))
   ([this op-meta data]
-    (let [time (now)
-          tuples (mapcat as-tuples data)
-          _ (assert (not-any? :write tuples)
-              (str "Data provided to `write` already has :write tag " (some :write tuples)))
-          write (entity (time-uuid (.getTime time)))
-          op-meta (assoc op-meta :db/otime time :db/eid write)
-          tuples (->> tuples
-                   (concat (as-tuples op-meta))
-                   (add-write-tag write))]
-      (-> this
-        (write* tuples)
-        (update-write-meta write)))))
+    (let [[write tuples] (prep-write op-meta data)]
+      (write* this tuples))))
+
 
 (def index-bottom sedan/bottom)
 (def index-top sedan/top)

@@ -2,7 +2,7 @@
   (:require [cemerick.splice :as s :refer (write)]
             [cemerick.splice.memory.query :refer (q)]
             [cemerick.splice.types :refer (entity)]
-            [cemerick.splice.memory :refer (in-memory)]
+            [cemerick.splice.memory :as mem :refer (in-memory)]
             [cemerick.splice.rank :as rank]
             #+clj [cemerick.splice.memory.planning :refer (plan)]
             [cemerick.splice.uuid :refer (time-uuid)]
@@ -97,18 +97,18 @@
                               [[_ _ ?k] (range (/ ?v 3) -1 -1)]]}
       
       ; whole-tuple selection
-      [[(s/coerce-tuple "y" :b "c" (-> space meta ::s/last-write) nil)]
-       [(s/coerce-tuple "y" :b 6 (-> s2 meta ::s/last-write) nil)]]
+      [[(s/tuple "y" :b "c" (-> space meta ::mem/last-write) nil)]
+       [(s/tuple "y" :b 6 (-> s2 meta ::mem/last-write) nil)]]
       {:select [?t]
        :where [["y" _ _ _ :as ?t]]}
-      [[6 (s/coerce-tuple "y" :b 6 (-> s2 meta ::s/last-write) nil)]]
+      [[6 (s/tuple "y" :b 6 (-> s2 meta ::mem/last-write) nil)]]
       {:select [?v ?t]
        :where [["y" _ ?v _ :as ?t]
                (-> ?t :v number?)]}
       
       ;; TODO this *should* work, but is bugged
       #_#_
-      [[(entity "x") 6 (s/coerce-tuple "y" :b 6 (-> s2 meta ::s/writes first) nil)]]
+      [[(entity "x") 6 (s/tuple "y" :b 6 (-> s2 meta ::s/writes first) nil)]]
       {:select [?e ?v ?t]
        :where [["y" _ ?v _ :as ?t]
                (-> ?t :v number?)
@@ -297,7 +297,7 @@
     (is (= #{[1] [2]} (q s (plan {:select [?v] :where [[_ :a ?v] (number? ?v)]}))))
     (let [attr-writes (q s (plan {:select [?a ?t] :where [[_ ?a 2 ?t]]}))
           remove-tuples (map
-                          (fn [[attr write]] (s/coerce-tuple "x" attr 2 nil write))
+                          (fn [[attr write]] (s/tuple "x" attr 2 nil write))
                           attr-writes)
           space (s/write s remove-tuples)]
       
