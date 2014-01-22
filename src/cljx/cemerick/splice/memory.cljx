@@ -30,7 +30,8 @@
     (let [[write-num tuples] (s/placeholders->eids site-id last-write-num tuples)
           metadata (if (== write-num last-write-num)
                      metadata
-                     ; TODO this ::last-write bullshit is (almost) useless
+                     ; TODO this ::last-write bullshit is (almost) useless,
+                     ; should just be a query
                      (assoc metadata ::last-write [site-id write-num]))]
       (MemSpace. site-id write-num metadata (add-tuples indexes tuples))))
   (scan [this index-spec beg end]
@@ -40,16 +41,21 @@
     (let [index (indexes index-spec)]
       (rsubseq index >= beg <= end))))
 
+(defn site-idq
+  [space]
+  (ffirst (q/q space (p/plan {:select [?site]
+                              :where [["-local-config" :db/-site-id ?site]]}))))
+
 (defn in-memory
   ([]
      (let [site-id (random-uuid)
            [_ tuples] (s/prep-write nil [{:db/eid "-local-config"
-                                          :db/site-id site-id}])]
+                                          :db/-site-id site-id}])]
        (s/write* (MemSpace. site-id 0 {} q/empty-indexes) tuples)))
   ([init-tuples]
      (let [indexes (add-tuples q/empty-indexes init-tuples)
            temp (MemSpace. nil nil nil indexes)
-           site-id (ffirst (q/q temp (p/plan {:select [?site] :where [[_ :db/site-id ?site]]})))
+           site-id (site-id temp)
            ; TODO this sort of answer should be queryable; we're really just
            ; looking for the first (last) result of a sorted set and
            ; destructuring; seems within reach once results are delivered as a
