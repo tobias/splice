@@ -21,7 +21,7 @@
 
 (def number-trials
   #+clj (Long/parseLong (System/getProperty "quickcheck-times" "10000"))
-  #+cljs (js/parseInt (or (aget js/window "quickcheck_times") "10000")))
+  #+cljs (js/parseInt (or (this-as this (aget this "quickcheck_times")) "10000")))
 
 (deftest range-contracts
   (is (thrown? #+clj Exception #+cljs js/Error (rank/before (rank rank/LOW))))

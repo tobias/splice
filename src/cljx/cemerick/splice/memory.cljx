@@ -55,7 +55,7 @@
   ([init-tuples]
      (let [indexes (add-tuples q/empty-indexes init-tuples)
            temp (MemSpace. nil nil nil indexes)
-           site-id (site-id temp)
+           site-id (site-idq temp)
            ; TODO this sort of answer should be queryable; we're really just
            ; looking for the first (last) result of a sorted set and
            ; destructuring; seems within reach once results are delivered as a

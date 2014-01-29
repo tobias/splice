@@ -156,6 +156,17 @@ a map of operation metadata, first converting it to tuples with `as-tuples`."
     (let [[write tuples] (prep-write op-meta data)]
       (write* this tuples))))
 
+(defn- replicated-write-meta
+  [write-eid]
+  (let [time (now)]
+    (->> [{:db/eid write-eid :db/-repl-time time}
+          {:db/eid (peid 'write1) :db/otime time}]
+         (mapcat as-tuples)
+         (add-write-tag (peid 'write1)))))
+
+(defn replicated-write
+  [this write-eid write-tuples]
+  (write* this (concat write-tuples (replicated-write-meta write-eid))))
 
 (def index-bottom sedan/bottom)
 (def index-top sedan/top)

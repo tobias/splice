@@ -4,25 +4,43 @@
             [cemerick.splice.replication :as rep]
             [cemerick.splice.memory :as mem :refer (in-memory)]
             #+clj [cemerick.splice.memory.planning :refer (plan)]
-            #+cljs [cemerick.cljs.test :as t])
+            #+clj [clojure.core.async :as async :refer (go go-loop >! <! alts!)]
+            #+cljs [cljs.core.async :as async :refer (>! <! alts!)]
+            [cemerick.cljs.test :as t :refer (#+clj block-or-done)])
   #+cljs (:require-macros [cemerick.splice.memory.planning :refer (plan)]
-                          [cemerick.cljs.test :refer (deftest is are)])
+                          [cemerick.cljs.test :refer (deftest is are block-or-done run-tests done with-test-ctx)]
+                          [cljs.core.async.macros :refer (go)])
   #+clj (:use clojure.test))
 
-(deftest in-memory-atoms
+(deftest ^:async simplest
   (let [src (atom (in-memory))
-        tgt (atom (in-memory))]
-    (rep/watch-changes src (comp (partial rep/write*-to-reference tgt)
-                                 rep/write-change
-                                 ; need some busywork so that the write time of
-                                 ; the replicated write is later
-                                 #(do (reduce + (range 1e5)) %)))
-    (swap! src s/write [{:a 5 :db/eid "foo"}])
-    (let [query (plan {:select [?k ?v ?write ?write-time]
-                       :where [["foo" ?k ?v ?write]
-                               [?write :cemerick.splice/write-time ?write-time]]})
-          [sr] (seq (q @src query))
-          [tr] (seq (q @tgt query))]
-      (is (= (butlast sr) (butlast tr)))
-      (is (pos? (compare (last tr) (last sr)))))))
+        tgt (atom (in-memory))
+        ctrl (rep/peering-replication src tgt)
+        query (plan {:select [?k ?v ?write]
+                     :where [["foo" ?k ?v ?write]]})]
+    (swap! src s/write [{:a 5 :db/eid "foo" :b 6}])
+    ; TODO how to *actually* monitor replication?
+    (block-or-done
+     (go (<! (async/timeout 500))
+         (let [query (plan {:select [?k ?v ?write]
+                            :where [["foo" ?k ?v ?write]]})]
+           (is (= (q @src query) (q @tgt query))))
+         (async/close! ctrl)))))
 
+(deftest ^:async simplest-watcher
+  (let [src (atom (in-memory))
+        tgt (atom (in-memory))
+        ctrl (rep/peering-replication src tgt)
+        query (plan {:select [?k ?v ?write]
+                     :where [["foo" ?k ?v ?write]]})
+        complete (async/chan)]
+    (swap! src s/write [{:a 5 :db/eid "foo" :b 6}])
+    ; TODO how to *actually* monitor replication?
+    (add-watch tgt :repl
+               (fn [_ _ _ ts]
+                 (when (= (q @src query) (q @tgt query))
+                   (remove-watch tgt :repl)
+                   (async/close! ctrl)
+                   (async/put! complete true))))
+    (block-or-done
+     (go (is (first (alts! [complete (async/timeout 5000)])))))))
