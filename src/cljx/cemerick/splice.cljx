@@ -94,15 +94,23 @@ be used in preference to the Tuple. ctor."
      slots) representing the indexes that this TupleStore provides.")
   (write* [this tuples]
     "Writes the given tuples to the TupleStore.  It is assumed that the tuples
-     constitute a single \"write\".")
-  (scan [this index-spec beg end]
+    constitute a single \"write\".")
+  (scan [this index-spec beg end] [this index-spec beg end options]
+    ; TODO would really like to support turning off inclusivity, but it's
+    ; impractical given the way we're indexing right now. Could do it if the
+    ; indexes weren't covering, but they are, and I don't know that it's worth
+    ; it to change that just to avoid having to do runtime comparisons between
+    ; lower/upper bounds at runtime for exclusive queries, see
+    ; scan_range_queries.cljx tests
+    ; :inclusive - defaults true, means that tuples matching [beg] or [end] will be
+    ; included in the seq of returned tuples
     "Returns a (potentially lazy) seq of tuples that lie between the provided
-    [beg]inning and [end] tuples, inclusive. Throws an exception if the
-    requested [index-spec] is not available.")
-  (rscan [this index-spec beg end]
-    "Returns a (potentially lazy) seq of tuples that lie between the provided
-    [beg]inning and [end] tuples, inclusive, in reverse order. Throws an
-    exception if the requested [index-spec] is not available."))
+[beg]inning and [end] tuples.  Ordering is controlled via the [options] map:
+
+:reverse - defaults false; when true, tuples are returned in the opposite of
+their \"natural order\" as per [index-spec].
+
+Throws an exception if the requested [index-spec] is not available."))
 
 (defn- add-write-tag
   [write tuples]

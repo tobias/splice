@@ -11,8 +11,16 @@
 ; I want to write:
 ; (q space (plan {:select [?t]
 ;                 :args [?since]
-;                 :where [[_ _ _ (> ?since ?w) :as ?t]]})
+;                 :where [[_ _ _ (< ?since ?w) :as ?t]]})
 ;    last-write)
+
+#_
+{:select [?attr]
+ :args [?start ?end]
+ :where [[_ (<= ?start ?attr ?end)]]}
+
+; (< ?arg ?v) => (< ?arg ?v *top*)
+; (< ?v arg?) => (< *bottom* ?v arg?)
 ; TODO need to support > >= < <= expressions in match clauses
 ; TODO how to characterize order? Implicit from the different range expressions
 ; in match clauses?
@@ -20,12 +28,8 @@
 (defn- local-writes-since
   [space [site-id _ :as since-write]]
   (->> (s/scan space [:write :e :a :v :remove-write]
-               (q/sortable-match-tuple
-                (q/match-tuple ['_ '_ '_ since-write])
-                s/index-bottom)
-               (q/sortable-match-tuple
-                (q/match-tuple ['_ '_ '_ [site-id s/index-top]])
-                s/index-top))
+         (s/tuple s/index-bottom s/index-bottom s/index-bottom since-write)
+         (s/tuple s/index-top s/index-top s/index-top [site-id s/index-top]))
        (drop-while #(= since-write (:write %)))
        (partition-by :write)))
 

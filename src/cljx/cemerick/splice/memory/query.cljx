@@ -3,7 +3,7 @@
   #+cljs (:require-macros [cemerick.splice.memory.indexing :refer (index-comparator)])
   (:require [cemerick.splice :as s :refer (->Tuple)]
             [cemerick.splice.types :refer (entity)]
-            cemerick.sedan ; used by index-comparator
+            [cemerick.sedan :as sedan] ; used by index-comparator
             [clojure.set :as set]))
 
 ;; as long as each index is complete, we can just keep covering indexes as
@@ -14,7 +14,7 @@
                   (index-comparator [:a :e :v :write :remove-write])
                   [:a :v :e :write :remove-write]
                   (index-comparator [:a :v :e :write :remove-write])
-                  ; TODO this should only be available for reference values...
+                  ; TODO this should only be available for reference values...?
                   [:v :a :e :write :remove-write]
                   (index-comparator [:v :a :e :write :remove-write])
                   ;; this index is (*maybe*) only useful for driving replication
@@ -29,10 +29,18 @@
 (def empty-indexes (into {} (for [[index-keys comparator] index-types]
                               [index-keys (sorted-set-by comparator)])))
 
+; necessary because we can't emit index-top and index-bottom values from the
+; planner while it's exposed as a macro
+(def bottom-symbol '⊥)
+(def top-symbol '⊤)
+
+(defn extend-tuple-vector
+  [v]
+  (into v (repeat (- 5 (count v)) '_)))
+
 (defn match-tuple
   [match-vector]
-  (apply ->Tuple (->> (repeat (- 5 (count match-vector)) '_)
-                   (into match-vector))))
+  (apply ->Tuple (extend-tuple-vector match-vector)))
 
 (defn- query-reorder-clauses
   [clauses]
@@ -64,69 +72,84 @@
     (mapcat #(when-let [x (and (next %) (first %))]
                (map (fn [y] [x y]) (rest %))))))
 
-(defn- coerce-match-tuple*
-  [x]
-  (cond
-   (variable? x) x
-   :default (entity x)))
-
-(defn coerce-match-tuple
-  "Given a match tuple, returns a new one with bound values coerced appropriately
-(e.g. values in entity position are turned into entity values, etc)."
-  [t]
-  (-> t
-    (update-in [:e] coerce-match-tuple*)
-    (update-in [:write] coerce-match-tuple*)))
-
 ; TODO eventually compile fns for each match-vector that use
 ; core.match for optimal filtering after index lookup
 
-(defn sortable-match-tuple
-  [t wildcard]
-  (reduce (fn [t [k v]]
-            (if-not (variable? v)
-              t
-              (assoc t k wildcard)))
-    t t))
-
+; highlight matching chars
 (defn- match*
-  [space index-keys match-vector binding-vector whole-tuple-binding]
+  [space index-keys match-spec clause whole-tuple-binding]
   (when (and index-keys (not (contains? (s/available-indexes space) index-keys)))
     (throw (#+clj IllegalArgumentException. #+cljs js/Error.
                   (str "Planned index " index-keys " is not available in TupleSet"))))
-  (let [binding-tuple (coerce-match-tuple (match-tuple binding-vector))
-        match-tuple (coerce-match-tuple (match-tuple match-vector))
-        slot-bindings (filter (comp binding? val) binding-tuple)]
+  (let [match-tuple (match-tuple match-spec)
+        slot-bindings (->> (map :binding match-spec)
+                        (map list [:e :a :v :write :write-remove])
+                        (reduce
+                          (fn [slot-bindings [slot binding :as pair]]
+                            (if (and binding (binding? binding))
+                              (conj slot-bindings pair)
+                              slot-bindings))
+                          []))]
     (->> (s/scan space
-                 (or ((s/available-indexes space) index-keys)
-                     ; TODO probably should just use (first available-indexes)?
-                     [:e :a :v :write :remove-write])
-                 (sortable-match-tuple match-tuple s/index-bottom)
-                 (sortable-match-tuple match-tuple s/index-top))
-         (filter (partial every? (fn [[k v]]
-                                   (let [v2 (k match-tuple)]
-                                     (or (variable? v2) (= v v2))))))
-         ;; TODO need to be able to disable this filtering for when we want to 
-         ;; match / join with :remove-write values
-         (reduce
-          (fn [[ts rm] t]
-            (if-let [r (:remove-write t)]
-              [ts (conj rm (assoc t :write r :remove-write nil))]
-              [(conj ts t) rm]))
-          [#{} #{}])
-         (#(apply set/difference %))
-         (map #(reduce (fn [match [tuple-key binding]]
-                         (assoc match binding (tuple-key %)))
-                       (if whole-tuple-binding
-                         {whole-tuple-binding %}
-                         {})
-                       slot-bindings))
-         set)))
+           (or ((s/available-indexes space) index-keys)
+             ; TODO probably should just use (first available-indexes)?
+             [:e :a :v :write :remove-write])
+           (apply ->Tuple (map :bottom match-spec))
+           (apply ->Tuple (map :top match-spec)))
+      ; the slowness of this filter is going to be hilarious
+      (filter (partial every? (fn [[k v]]
+                                (let [{v2 :binding :keys [bottom top inclusive]} (k match-tuple)]
+                                  (and (or (nil? v2) (variable? v2) (= v v2))
+                                    ; this is the only way to implement
+                                    ; bounds-exclusive scans when the match
+                                    ; clause has grounded values in it, e.g. [_
+                                    ; :b (< 5 ?v)]; we pick the :aevw index, and
+                                    ; so need to "manually" filter exclusive
+                                    ; ranges. Certain clauses _don't_ need this
+                                    ; (e.g. [_ _ _ (< ?since ?w) :as ?t]), but
+                                    ; that's an optimization
+                                    (or inclusive
+                                      (and (neg? (sedan/compare bottom v))
+                                        (neg? (sedan/compare v top)))))))))
+      ;(#(do (prn %) %))
+      ;; TODO need to be able to disable this filtering for when we want to 
+      ;; match / join with :remove-write values
+      (reduce
+        (fn [[ts rm] t]
+          (if-let [r (:remove-write t)]
+            [ts (conj rm (assoc t :write r :remove-write nil))]
+            [(conj ts t) rm]))
+        [#{} #{}])
+      ;(#(do (prn "xxx" slot-bindings %) %))
+      (#(apply set/difference %))
+      (map #(reduce (fn [match [tuple-key binding]]
+                      (assoc match binding (tuple-key %)))
+              (if whole-tuple-binding
+                {whole-tuple-binding %}
+                {})
+              slot-bindings))
+      set)))
+
+(defn- fix-match-bindings
+  [rel match-spec]
+  (mapv (fn [spec]
+          (if-let [[_ bval] (find rel (:binding spec))]
+            (assoc spec :bottom bval :top bval)
+            (reduce
+              (fn [spec slot] (update-in spec [slot] #(rel % %)))
+              spec
+              [:bottom :binding :top])))
+    match-spec))
 
 (defn match
-  [space previous-matches {:keys [index clause bindings whole-tuple-binding] :as clause-plan}]
+  [space previous-matches {:keys [index clause match-spec whole-tuple-binding]}]
   (->> (if (empty? previous-matches) #{{}} previous-matches)
-    (map #(let [matches (match* space index (replace % clause) clause whole-tuple-binding)]
+    (map #(let [matches (match* space index
+                          (fix-match-bindings (merge %
+                                                {bottom-symbol s/index-bottom
+                                                 top-symbol s/index-top})
+                            match-spec)
+                          clause whole-tuple-binding)]
             (if (seq matches)
               (set/join previous-matches matches)
               #{})))
@@ -185,3 +208,4 @@
          ;; TODO we can do this statically
          (remove (partial some nil?))
          set)))
+

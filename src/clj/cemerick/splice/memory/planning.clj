@@ -1,6 +1,7 @@
 (ns cemerick.splice.memory.planning
   (:require [cemerick.cljs.macro :refer (defportable *cljs* *clj*)]
-            [cemerick.splice.memory.query :as query]
+            [cemerick.splice :as s]
+            [cemerick.splice.memory.query :as q]
             [clojure.core.match :as match]
             [clojure.math.combinatorics :refer (cartesian-product)]
             [clojure.set :as set]
@@ -9,15 +10,28 @@
 (defmulti plan* :planner)
 
 (def ^:private predicate-clause? list?)
+
 (defn- function-clause? [x]
   (and (vector? x) (list? (second x))))
-(defn- expression-clause? [x] (or (predicate-clause? x) (function-clause? x)))
+
+(defn- scan-range-clause?
+  [x]
+  (and (vector? x)
+       (boolean (some list? x))))
+
+(defn- expression-clause?
+  "Returns true for any clause that is or contains an \"expression\", which can
+  depend upon bindings established in other clauses."
+  [x]
+  (or (predicate-clause? x)
+      (function-clause? x)
+      (scan-range-clause? x))) 
 
 (defn- pick-index
   [index-keys bound-clause original-clause]
-  (let [bound-keys (set (for [[k v] (query/match-tuple bound-clause)
+  (let [bound-keys (set (for [[k v] (q/match-tuple bound-clause)
                               :when (and (not (= '_ v))
-                                      (not (query/binding? v)))]
+                                      (not (q/binding? v)))]
                           k))
         [prefix best-index] (->> index-keys
                               (map #(vector (count (take-while bound-keys %)) %))
@@ -37,7 +51,7 @@ well as expression clauses."
                  clause)]
     (->> (tree-seq coll? seq clause)
       (remove coll?)
-      (filter query/binding?)
+      (filter q/binding?)
       set)))
 
 ; this is probably outdated; something like this will be necessary to do more sophisticated
@@ -47,7 +61,7 @@ well as expression clauses."
   [clauses]
   (reduce
     (partial merge-with into)
-    (for [[c c2] (query/pairs clauses)
+    (for [[c c2] (q/pairs clauses)
           :let [[b b2] (map clause-bindings [c c2])
                 overlap? (seq (set/intersection b b2))]]
       {:nodes #{c c2}
@@ -60,7 +74,7 @@ well as expression clauses."
                     :default {c #{c2}})})))
 
 ; All :default planner does is maintain "user"-provided clause ordering,
-; (excl. expression clauses), largely following the lead of
+; (excl. "expression" clauses), largely following the lead of
 ; https://groups.google.com/d/topic/datomic/6VkADvLx-QU/discussion
 (defn- reorder-expression-clauses
   [clauses]
@@ -75,13 +89,14 @@ well as expression clauses."
       (reverse (remove expression-clause? clauses))
       (filter expression-clause? clauses))))
 
+; TODO this name is a misnomer; scan range clauses are also "expression" clauses
+; insofar as they have binding dependencies, but they are not predicates or
+; function invocations/expressions.
 (defn- expression-clause
   [clause-bindings clause]
   (let [code `(~'fn [{:syms ~(vec clause-bindings)}]
                 ~clause)]
     (with-meta code {:clause (list 'quote clause) :code (list 'quote code)})))
-
-(declare plan-clauses)
 
 (defn- expand-disjunctive-clause
   [clause]
@@ -90,8 +105,104 @@ well as expression clauses."
     (map (comp vector vec))
     set))
 
+; TODO need to treat match clauses that contain scan range expressions as
+; predicate clauses w.r.t. clause reordering
+(defn- rewrite-scan-range-expr
+  [bindings expr]
+  (match/match expr
+    ([(:or '> '>=) & components] :seq)
+    ; TODO this is going to yield confusing error messages, since the
+    ; expressions printed will be rewritten
+    (rewrite-scan-range-expr
+      bindings
+      (list* ('{> < >= <=} (first expr))
+        (reverse components)))
+
+    ; TODO we should clamp these to the top/bottom of the
+    ; corresponding sedan partition; needs to be done at runtime
+    ; since we don't know the types of the bindings here.  So, we
+    ; need some sigil indicating "top/bottom of the corresponding
+    ; partition"
+    ;; sometimes you want a clamp, sometimes not. Scans in :v, ok...
+    ;; scans over :write, which can be of any type (at the moment?)
+    ;; and e.g. replication queries need to traverse the entire space
+    ;; up to index-top,
+    ;; not so much
+    ([(:or '< '<=) lower higher] :seq)
+    (cond
+      (every? q/binding? [lower higher])
+      (throw (IllegalArgumentException.
+               (str "No free variable found in scan range expression:" expr)))
+      
+      ; (< ?a "foo")
+      (q/binding? lower)
+      (list (first expr) q/bottom-symbol lower higher)
+
+      ; (< "foo" ?a)
+      (q/binding? higher)
+      (list (first expr) lower higher q/top-symbol)
+
+      :else
+      (throw (IllegalArgumentException.
+               (str "More than one free variable found in scan range expression: " expr))))
+
+    ([(:or '< '<=) bottom free top] :seq)
+    (cond
+      (every? bindings [bottom top])
+      (throw (IllegalArgumentException.
+               (str "Bottom and top of scan range expression not bound: " expr)))
+      (contains? bindings free)
+      (throw (IllegalArgumentException.
+               (str "Middle member of scan range expression is bound: " expr)))
+      :else (apply list expr))
+
+    (x :guard q/variable?)
+    (list '<= q/bottom-symbol x q/top-symbol)
+
+    :else
+    (list '<= expr expr expr)))
+
+(defn- match-spec
+  [[op bottom binding top :as scan-range-expr]]
+  {:pre [('#{< <=} op) bottom top]}
+  (into {:inclusive (= op '<=)}
+    (map vector [:bottom :binding :top] (rest scan-range-expr))))
+
+(defn- match-spec? [x]
+  (and (map? x) (contains? x :inclusive)))
+
+(declare plan-clause* plan-clauses)
+
+(defn- plan-match
+  [args bindings bound-clause clause]
+  (let [disjunctions-expanded (expand-disjunctive-clause clause)]
+    (if (< 1 (count disjunctions-expanded))
+      (plan-clause* args bindings bound-clause disjunctions-expanded)
+      ; the only reason we're requiring a fully-specified tuple here is to avoid
+      ; getting the ':as' and tuple binding name mixed up in the matching
+      (let [whole-tuple-binding (match/match [clause]
+                                      [[_ _ _ _ ':as whole-tuple-binding]]
+                                      whole-tuple-binding
+                                      :else nil)
+            [clause bound-clause] (if whole-tuple-binding
+                                    (map #(subvec % 0 4) [clause bound-clause])
+                                    [clause bound-clause])
+            _ (when (> (count (filter list? clause)) 1)
+                (throw (IllegalArgumentException. (str "More than one scan expression in clause: "
+                                                 clause))))
+            match-specs (->> (q/extend-tuple-vector clause)
+                             (mapv (partial rewrite-scan-range-expr bindings))
+                             (mapv match-spec))]
+        (merge (when whole-tuple-binding
+                 {:whole-tuple-binding whole-tuple-binding})
+               {:match-spec match-specs
+                :op :match
+                :index (pick-index q/available-indexes bound-clause clause)
+                :clause clause
+                :bound-clause bound-clause})))))
+
 (defn- plan-clause*
-  [args bound-clause clause]
+  [args bindings bound-clause clause]
   (match/match [clause]
     
     [(_ :guard set?)]
@@ -117,7 +228,7 @@ well as expression clauses."
     [[destructuring (['recur & arguments] :seq :guard list?)]]
     {:op :subquery
       :destructuring destructuring
-      :subquery ::query/recur
+      :subquery ::q/recur
       :args (vec arguments)}
     
     [[destructuring (fn-expr :guard list?)]]
@@ -130,22 +241,7 @@ well as expression clauses."
                        #{(zipmap (map #(list 'quote %) bindings) bindings)})))}
     
     [[& _]]
-    (let [disjunctions-expanded (expand-disjunctive-clause clause)]
-      (if (< 1 (count disjunctions-expanded))
-        (plan-clause* args bound-clause disjunctions-expanded)
-        (match/match [clause]
-          
-          [[_ _ _ _ ':as whole-tuple-binding]]
-          (let [bound-clause (subvec bound-clause 0 4)]
-            {:bound-clause bound-clause
-             :index (pick-index query/available-indexes bound-clause clause)
-             :op :match
-             :clause (subvec clause 0 4)
-             :whole-tuple-binding whole-tuple-binding})
-          
-          :else {:bound-clause bound-clause
-                 :index (pick-index query/available-indexes bound-clause clause)
-                 :op :match})))
+    (plan-match args bindings bound-clause clause)
     
     :else (throw (IllegalArgumentException. (str "Invalid clause: " clause)))))
 
@@ -160,7 +256,8 @@ well as expression clauses."
                          {:clause clause
                           :bindings bindings}
                          (when prev-bound {:bound-bindings prev-bound})
-                         (plan-clause* args bound-clause clause))]
+                         (plan-clause* args (into (or prev-bound #{}) args)
+                                       bound-clause clause))]
     planned-clause))
 
 (defn- plan-clauses
@@ -193,6 +290,7 @@ well as expression clauses."
     #(cond
        (and (map-entry? %) (#{:function :predicate} (first %))) %
        (and (map-entry? %) (#{:clause} (first %))) [(first %) (list 'quote (second %))]
+       (list? %) (list 'quote %)
        :else (quote-symbols %))
     #(if (symbol? %) (list 'quote %) %)
     query))

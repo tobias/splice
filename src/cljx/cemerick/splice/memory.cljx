@@ -35,11 +35,14 @@
                      (assoc metadata ::last-write [site-id write-num]))]
       (MemSpace. site-id write-num metadata (add-tuples indexes tuples))))
   (scan [this index-spec beg end]
-    (let [index (indexes index-spec)]
-      (subseq index >= beg <= end)))
-  (rscan [this index-spec beg end]
-    (let [index (indexes index-spec)]
-      (rsubseq index >= beg <= end))))
+    (s/scan this index-spec beg end nil))
+  (scan [this index-spec beg end options]
+    (let [reverse (:reverse options false)
+          index (indexes index-spec)]
+      (assert index (str "No index available corresponding to index-spec "
+                      index-spec))
+      ((if reverse rsubseq subseq)
+       index >= beg <= end))))
 
 (defn site-idq
   [space]
@@ -60,21 +63,40 @@
            ; looking for the first (last) result of a sorted set and
            ; destructuring; seems within reach once results are delivered as a
            ; lazy seq and not a concrete set
-           ; TODO maybe scan/rscan should implicitly handle the
-           ; match-tuple/sortable-match-tuple dance
-           last-write-num (->> (s/rscan temp [:write :a :e :v :remove-write]
-                                        (q/sortable-match-tuple
-                                         (q/match-tuple ['_ '_ '_ [site-id s/index-bottom]])
-                                         s/index-bottom)
-                                        (q/sortable-match-tuple
-                                         (q/match-tuple ['_ '_ '_ [site-id s/index-top]])
-                                         s/index-top))
-                               first
-                               :write
-                               second)]
+           last-write-num (->> (s/scan temp [:write :a :e :v :remove-write]
+                                 (s/tuple s/index-bottom s/index-bottom s/index-bottom
+                                   [site-id s/index-bottom])
+                                 (s/tuple s/index-top s/index-top s/index-top 
+                                   [site-id s/index-top])
+                                 {:reverse true})
+                            first
+                            :write
+                            second)]
        (assert (number? last-write-num) "Could not find last write number in initial set of tuples for in-memory splice")
        (MemSpace. site-id last-write-num {} indexes))))
 
 ;; new write ++
 ;; new write with metadata ++
 ;; replicated write (implies additional new write w/ repl metadata ++)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
