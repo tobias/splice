@@ -139,8 +139,9 @@
 (deftest composite-values
   (let [space (write (in-memory) [{:a [4 5 6] :b #{1 2 3} :db/eid "x"}])]
 
-    (is (thrown? #+clj Error #+cljs js/Error
-                 (write space [{:c #{#{1 2 3}} :db/eid "y"}])))
+    (is (thrown-with-msg? #+clj Throwable #+cljs js/Error
+          #".*No way to encode value of type.+"
+          (write space [{:c #{#{1 2 3}} :db/eid "y"}])))
     
     (are [result query] (= (set result) (set (q space (plan query))))
          [[1] [2] [3]] {:select [?v]

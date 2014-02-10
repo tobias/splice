@@ -9,7 +9,7 @@
                  [org.clojure/clojurescript "0.0-2156"]
                  [org.clojure/core.match "0.2.0"]
                  [org.clojure/core.incubator "0.1.1"]
-                 [com.cemerick/sedan "0.0.3"]
+                 [com.cemerick/sedan "0.0.4-SNAPSHOT"]
                  [org.clojure/math.combinatorics "0.0.4"]
                  [com.cemerick/cljs-sanity "0.0.1"]
                  [org.clojure/core.async "0.1.267.0-0d7780-alpha"]]
@@ -61,3 +61,4 @@
                         {:jvm-opts ["-Dquickcheck-times=10000000"]
                          :cljsbuild {:test-commands {"node"
                                                      ^:replace ["node" :runner "this.quickcheck_times='10000000'" "target/testable.js"]}}}]})
+
