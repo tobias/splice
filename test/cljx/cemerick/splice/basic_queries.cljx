@@ -1,7 +1,7 @@
 (ns cemerick.splice.basic-queries
   (:require [cemerick.splice :as s :refer (write)]
-            [cemerick.splice.memory.query :as q :refer (q)
-             ]
+            [cemerick.splice.memory.query :as q :refer (q)]
+            [cemerick.splice.test :refer (set-check)]
             [cemerick.splice.types :refer (entity)]
             [cemerick.splice.memory :as mem :refer (in-memory)]
             [cemerick.splice.rank :as rank]
@@ -16,7 +16,7 @@
   (let [s1 (write (in-memory) [{:a 6 :b 12 :db/eid "x"}])
         s2 (write s1 {:some-meta :p} [{:b 6 :db/eid "y"}])
         space (write s2 {:some-meta true} [{:b "c" :db/eid "y"}])]
-    (are [result query] (= (set result) (set (q space (plan query))))
+    (are [result query] (= (set result) (set-check (q space (plan query))))
          [[(entity "x") 6]] {:select [?e ?v]
                              :where [[?e :b 12]
                                      [?e :a ?v]]}
@@ -123,13 +123,13 @@
                                                                  [?ywrite :db/otime ?ytime]]})))))))
     
     ; args
-    (is (= #{[(entity "x") :b 12]} (q space (plan {:select [?e ?a ?v]
-                                                   :args [?a ?v]
-                                                   :where [[?e ?a ?v]]})
-                                     :b 12)))
+    (is (= [[(entity "x") :b 12]] (q space (plan {:select [?e ?a ?v]
+                                               :args [?a ?v]
+                                               :where [[?e ?a ?v]]})
+                                 :b 12)))
 
     ; fn args!
-    (is (= #{["c"]} (q space (plan {:select [?v]
+    (is (= [["c"]] (q space (plan {:select [?v]
                                     :args [?pred]
                                     :where [(?pred ?v)
                                             [_ :b ?v]]})
@@ -143,7 +143,7 @@
           #".*No way to encode value of type.+"
           (write space [{:c #{#{1 2 3}} :db/eid "y"}])))
     
-    (are [result query] (= (set result) (set (q space (plan query))))
+    (are [result query] (= (set result) (set-check (q space (plan query))))
          [[1] [2] [3]] {:select [?v]
                         :where [[_ :b ?v]]}
          
@@ -160,7 +160,7 @@
   (let [space (-> (in-memory)
                 (write [{:b #{1 2 3} :db/eid "x"}])
                 (write [{:a #{4 5} :d #{7 8 9} :db/eid "y"}]))]
-    (are [result query] (= (set result) (set (q space (plan query))))
+    (are [result query] (= (set result) (set-check (q space (plan query))))
       [[:b] [:d]] {:select [?a]
                    :where [[_ ?a #{3 9}]]}
       
@@ -177,38 +177,38 @@
                         {:x 2 :ref (entity "a") :db/eid "z"}
                         {:x 3 :db/eid "a"}]))]
     (is (= #{[(entity "x") (entity "y")] [(entity "x") (entity "z")] [(entity "x") (entity "a")]}
-          (q space (plan {:select [?head ?c]
-                          :args [?head]
-                          :subs {:walk {:select [?c]
-                                        :args [?p]
-                                        :where #{[[?p :ref ?c]]
-                                                 [[?p :ref ?ch]
-                                                  [[?c] (q :walk ?ch)]]}}}
-                          :where [[[?c] (q :walk ?head)]]})
-            (entity "x"))))
+          (set-check (q space (plan {:select [?head ?c]
+                           :args [?head]
+                           :subs {:walk {:select [?c]
+                                         :args [?p]
+                                         :where #{[[?p :ref ?c]]
+                                                  [[?p :ref ?ch]
+                                                   [[?c] (q :walk ?ch)]]}}}
+                           :where [[[?c] (q :walk ?head)]]})
+             (entity "x")))))
     
     (is (= #{[(entity "a") 3] [(entity "y") 1] [(entity "z") 2]}
-          (q space
-            (plan {:select [?c ?x]
-                   :args [?head]
-                   :subs {:walk {:select [?c ?x]
-                                 :args [?p]
-                                 :where #{[[?p :ref ?c]
-                                           [?c :x ?x]]
-                                          [[?p :ref ?ch]
-                                           [[?c ?x] (q :walk ?ch)]]}}}
-                   :where [[[?c ?x] (q :walk ?head)]]})
-            (entity "x"))
+          (set-check (q space
+             (plan {:select [?c ?x]
+                    :args [?head]
+                    :subs {:walk {:select [?c ?x]
+                                  :args [?p]
+                                  :where #{[[?p :ref ?c]
+                                            [?c :x ?x]]
+                                           [[?p :ref ?ch]
+                                            [[?c ?x] (q :walk ?ch)]]}}}
+                    :where [[[?c ?x] (q :walk ?head)]]})
+             (entity "x")))
           
           ;; direct-recur
-          (q space
-            (plan {:select [?c ?x]
-                   :args [?p]
-                   :where #{[[?p :ref ?c]
-                             [?c :x ?x]]
-                            [[?p :ref ?ch]
-                             [[?c ?x] (recur ?ch)]]}})
-            (entity "x"))))))
+          (set-check (q space
+             (plan {:select [?c ?x]
+                    :args [?p]
+                    :where #{[[?p :ref ?c]
+                              [?c :x ?x]]
+                             [[?p :ref ?ch]
+                              [[?c ?x] (recur ?ch)]]}})
+             (entity "x")))))))
 
 ; <p><em class="title" id="name">x</em><span>y</span></p>
 ; TODO yeesh, need some convenience for using particular types (e.g. ranks) as
@@ -229,30 +229,30 @@
 (deftest html-subqueries
   (let [space (write (in-memory) [html])]
     (is (= #{[:em] [:span] [:p]}
-          (q space
-            (plan {:select [?el]
-                   :args [?head]
-                   :subs {:walk {:select [?el]
-                                 :args [?head]
-                                 :where #{[[?head :html/element ?el]]
-                                          [[?head :html/children ?ch]
-                                           [[?el] (q :walk ?ch)]]}}}
-                   :where [[?e :html/element ?head]
-                           [[?el] (q :walk ?e)]]})
-            :p)
+          (set-check (q space
+             (plan {:select [?el]
+                    :args [?head]
+                    :subs {:walk {:select [?el]
+                                  :args [?head]
+                                  :where #{[[?head :html/element ?el]]
+                                           [[?head :html/children ?ch]
+                                            [[?el] (q :walk ?ch)]]}}}
+                    :where [[?e :html/element ?head]
+                            [[?el] (q :walk ?e)]]})
+             :p))
           
           ;; direct-recur
-          (q space
-            (plan {:select [?el]
-                   :args [?head]
-                   :where #{[[?head :html/element ?el]]
-                            [[?head :html/children ?ch]
-                             [[?el] (recur ?ch)]]}})
-            (entity (:db/eid html)))))))
+          (set-check (q space
+             (plan {:select [?el]
+                    :args [?head]
+                    :where #{[[?head :html/element ?el]]
+                             [[?head :html/children ?ch]
+                              [[?el] (recur ?ch)]]}})
+             (entity (:db/eid html))))))))
 
 (deftest html-attributes
   (let [space (write (in-memory) [html])]
-    (are [results query] (= results (q space (plan query)))
+    (are [results query] (= results (set-check (q space (plan query))))
       #{[:span [:class "foo"]] [:em [:class "title"]]}
       {:select [?el ?attr]
        :args [?head]
@@ -270,35 +270,10 @@
                 [[?head :html/children ?ch]
                  [[?el ?attr] (recur ?ch)]]}})))
 
-(deftest html-subqueries
-  (let [m (s/assign-map-ids html)
-        space (write (in-memory) [m])]
-    (is (= #{[:em] [:span] [:p]}
-          (q space
-            (plan {:select [?el]
-                   :args [?head]
-                   :subs {:walk {:select [?el]
-                                 :args [?head]
-                                 :where #{[[?head :html/element ?el]]
-                                          [[?head :html/children ?ch]
-                                           [[?el] (q :walk ?ch)]]}}}
-                   :where [[?e :html/element ?head]
-                           [[?el] (q :walk ?e)]]})
-            :p)
-          
-          ;; direct-recur
-          (q space
-            (plan {:select [?el]
-                   :args [?head]
-                   :where #{[[?head :html/element ?el]]
-                            [[?head :html/children ?ch]
-                             [[?el] (recur ?ch)]]}})
-            (entity (:db/eid m)))))))
-
 (deftest deletes
   (let [s (write (in-memory) [{:a #{"y" :x 1 2} :b #{2 4} :db/eid "x"}])]
-    (is (= #{[1] [2]} (q s (plan {:select [?v] :where [[_ :a ?v] (number? ?v)]}))))
-    (let [attr-writes (q s (plan {:select [?a ?t] :where [[_ ?a 2 ?t]]}))
+    (is (= #{[1] [2]} (set-check (q s (plan {:select [?v] :where [[_ :a ?v] (number? ?v)]})))))
+    (let [attr-writes (set-check (q s (plan {:select [?a ?t] :where [[_ ?a 2 ?t]]})))
           remove-tuples (map
                           (fn [[attr write]] (s/tuple "x" attr 2 nil write))
                           attr-writes)
@@ -310,12 +285,12 @@
       #_
       (pp/pprint [remove-write
                   (-> attr-writes first second)
-                  (q s `{:select [?e ?a ?v ?r] :where [[?e ?a ?v ~remove-write ?r]]})])
+                  (set-check (q s `{:select [?e ?a ?v ?r] :where [[?e ?a ?v ~remove-write ?r]]}))])
       #_#_
       (def i (s/index s [:e :a :v :write :remove-write]))
       (def s s)
       ;(pp/pprint i)
-      (are [result query] (= (set result) (set (q space (plan query))))
+      (are [result query] (= (set result) (set-check (q space (plan query))))
         #{[1]} {:select [?v] :where [[_ :a ?v] (number? ?v)]}
         #{[4]} {:select [?v] :where [[_ :b ?v] (number? ?v)]}
         #{} {:select [?a] :where [[_ ?a 2]]}))))

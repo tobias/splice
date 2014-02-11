@@ -157,36 +157,45 @@
 
 (defn query
   [space q results]
-  (reduce
-    (fn [results clause-plan]
-      (case (:op clause-plan)
-        :match (match space results clause-plan)
-        :predicate (set/select (:predicate clause-plan) results)
-        :function (let [function (:function clause-plan)]
-                    (->> results
-                      (map #(set/join #{%} (function %)))
-                      (apply set/union)))
-        :disjunction (->> (:clauses clause-plan)
-                       (map #(query space (assoc q ::recur q :where %) results))
-                       (apply set/union))
-        :subquery (let [subquery (if (= ::recur (:subquery clause-plan))
-                                   (::recur q)
-                                   (-> (:subs q)
-                                     (get (:subquery clause-plan))
-                                     (update-in [:subs] #(merge (:subs q) %))))
-                        ; TODO we're losing the higher-level argument bindings here?
-                        ; that may be a good thing, in terms of minimizing confusion around
-                        ; naming/shadowing of arguments
-                        args (map (fn [m] #{(into {} (map (fn [src dst] [dst (m src)])
-                                                       (:args clause-plan) (:args subquery)))})
-                               results)]
-                    (->> (mapcat #(query space subquery %) args)
-                      (map (apply juxt (:select subquery)))
-                      (map #(zipmap (:destructuring clause-plan) %))
-                      set
-                      (set/join results)))))
-    results
-    (:where q)))
+  (set/project
+    (reduce
+      (fn [results clause-plan]
+        (case (:op clause-plan)
+          :match (match space results clause-plan)
+          :predicate (set/select (:predicate clause-plan) results)
+          :function (let [function (:function clause-plan)]
+                      (->> results
+                        (map #(set/join #{%} (function %)))
+                        (apply set/union)))
+          :disjunction (->> (:clauses clause-plan)
+                         ; self-recur should jump to the top of the current
+                         ; query, not this dummy we're putting together to go down
+                         ; each leg of the disjunction
+                         ; TODO this means recur will fail outside of a
+                         ; disjunctive clause; is that OK?
+                         (map #(query space (assoc q ::recur-to q :where %) results))
+                         (apply set/union))
+          :subquery (let [subquery (if (= ::recur (:subquery clause-plan))
+                                     (update-in (::recur-to q) [:lvl] (fnil inc 1))
+                                     (-> (:subs q)
+                                       (get (:subquery clause-plan))
+                                       (update-in [:subs] #(merge (:subs q) %))))
+                          ; TODO we're losing the higher-level argument bindings here?
+                          ; that may be a good thing, in terms of minimizing confusion around
+                          ; naming/shadowing of arguments
+                          args (map #(hash-set (zipmap (:args subquery)
+                                                 ((apply juxt (:args clause-plan)) %)))
+                                 results)]
+                      (if (seq args)
+                        (->> (mapcat #(query space subquery %) args)
+                          (map (apply juxt (:select subquery)))
+                          (map #(zipmap (:destructuring clause-plan) %))
+                          set
+                          (set/join results))
+                        results))))
+      results
+      (:where q))
+    (:select q)))
 
 ;; TODO requiring query planning at compile-time is a sham. See bakery.md
 #_
@@ -206,6 +215,5 @@
     (->> matches
          (map (apply juxt (:select q)))
          ;; TODO we can do this statically
-         (remove (partial some nil?))
-         set)))
+         (remove (partial some nil?)))))
 

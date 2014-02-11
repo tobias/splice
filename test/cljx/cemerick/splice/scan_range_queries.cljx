@@ -1,7 +1,7 @@
 (ns cemerick.splice.scan-range-queries
   (:require [cemerick.splice :as s :refer (write)]
-            [cemerick.splice.memory.query :as q :refer (q)
-             ]
+            [cemerick.splice.memory.query :as q :refer (q)]
+            [cemerick.splice.test :refer (set-check)]
             [cemerick.splice.types :refer (entity)]
             [cemerick.splice.memory :as mem :refer (in-memory)]
             [cemerick.splice.rank :as rank]
@@ -18,7 +18,7 @@
              (write [{:b "c" :db/eid "y"}])))
 
 (deftest basic
-  (are [result query] (= (set result) (set (q space (plan query))))
+  (are [result query] (= (set result) (set-check (q space (plan query))))
        #{[12] ["c"]} {:select [?v]
                       :where [[_ :b (< 7 ?v)]]}
 

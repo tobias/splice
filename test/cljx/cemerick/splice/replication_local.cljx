@@ -24,7 +24,7 @@
      (go (<! (async/timeout 500))
          (let [query (plan {:select [?k ?v ?write]
                             :where [["foo" ?k ?v ?write]]})]
-           (is (= (q @src query) (q @tgt query))))
+           (is (= (set (q @src query)) (set (q @tgt query)))))
          (async/close! ctrl)))))
 
 (deftest ^:async simplest-watcher
@@ -38,7 +38,7 @@
     ; TODO how to *actually* monitor replication?
     (add-watch tgt :repl
                (fn [_ _ _ ts]
-                 (when (= (q @src query) (q @tgt query))
+                 (when (= (set (q @src query)) (set (q @tgt query)))
                    (remove-watch tgt :repl)
                    (async/close! ctrl)
                    (async/put! complete true))))
