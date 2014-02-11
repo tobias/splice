@@ -214,6 +214,7 @@
         matches (query space q #{args})]
     (->> matches
          (map (apply juxt (:select q)))
-         ;; TODO we can do this statically
+         ;; TODO we can/should do this statically; fail (or warn) the planning
+         ;; when a key in :select isn't present in :where
          (remove (partial some nil?)))))
 
