@@ -667,6 +667,22 @@ its sequential specification:
   fallback prospect of re-running each "reactive" query after each write
   completes.  More generally, reactive query is needed by any kind of autonomous
   tool / agent.
+* Datalog / query:
+  * scan range queries are OK, but just a quarter of the solution to the problem
+    of leveraging indexes to drive ordering of results:
+	* All of the runtime query logic uses clojure.set operations, which all
+      operate on "rels", sets of maps.  Fine enough, but all ordering from
+      underlying indexes is lost in the process.  We'll probably need to
+      reimplement key clojure.set operations so they'll work with sequences
+      and/or channels, and/or use
+      [insertion-order-preserving set impls](https://github.com/flatland/ordered).
+	  * this is not to say that duplicates should be allowed in results, just
+        that any deduplication needs to occur without affecting order, so a
+        mechanism like `distinct` or similar.
+	* ordering of results needs to be made explicit (perhaps with planning-time
+      checks to ensure that user-requested ordering doesn't conflict with
+      scan-range match clauses?...maybe not)
+	  
 * How should data purging / truncation be supported?  Contemplated supporting it
   directly in the data model, rejected it (see below), but a mechanism for
   e.g. purging data prior to X for entities Y for attributes Z should be
