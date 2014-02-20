@@ -30,6 +30,7 @@
   (is (thrown? #+clj Exception #+cljs js/Error (rank/after (rank ""))))
   (is (thrown? #+clj Exception #+cljs js/Error (rank/between (rank rank/HIGH) (rank rank/LOW))))
   (is (thrown? #+clj Exception #+cljs js/Error (rank/between (rank "a") (rank "a"))))
+  (is (thrown? #+clj Exception #+cljs js/Error (rank/after (rank [(inc rank/high-code)]))))
 
   (is (= "foo" (str (rank "foo")))))
 

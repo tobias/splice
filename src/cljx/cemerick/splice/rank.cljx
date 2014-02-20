@@ -133,6 +133,11 @@
   [low high]
   (cond
    (or (= low "") (= high "")) (throw (ex-info "Empty string is an invalid endpoint" {}))
+
+   ; only "need" this to prevent e.g. (after (rank [(inc high-code)]))
+   (pos? (sign (compare low HIGH))) (throw (ex-info "Invalid rank, low above HIGH" {:low low}))
+   (pos? (sign (compare high HIGH))) (throw (ex-info "Invalid rank, high above HIGH" {:high low}))
+
    (= high LOW) (throw (ex-info "Cannot generate rank that is less than LOW" {}))
    (= low HIGH) (throw (ex-info "Cannot generate rank that is greater than HIGH" {}))
    
@@ -177,3 +182,5 @@
 (defn before [^Rank rank] (Rank. (before* (.-string rank))))
 (defn after [^Rank rank] (Rank. (after* (.-string rank))))
 (defn between [^Rank a ^Rank b] (Rank. (between* (.-string a) (.-string b))))
+
+
