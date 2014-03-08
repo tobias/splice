@@ -68,8 +68,18 @@
 
 #+clj
 (defn random-uuid* [] (java.util.UUID/randomUUID))
+
+;; TODO upgrade this to use window.crypto ASAP
+;; Sourced from http://stackoverflow.com/a/2117523, clever
 #+cljs
 (defn random-uuid* []
-  (uuid (bits->string (rand-int max-long) (rand-int max-long))))
+  (uuid (.replace "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
+          (js/RegExp. "[xy]" "g")
+          (fn [c]
+            (.toString (if (= c "x")
+                         (rand-int 16)
+                         (bit-or 0x8 (bit-and 0x3 (rand-int 4))))
+              16)))))
 
 (def random-uuid (comp uuid-str random-uuid*))
+
