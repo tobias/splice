@@ -33,6 +33,7 @@
   "Positional factory function for class cemerick.splice.Tuple that coerces any
 implicit entity references to Entity instances.  This fn should therefore always
 be used in preference to the Tuple. ctor."
+  ([e a v] (tuple e a v nil nil))
   ([e a v write] (tuple e a v write nil))
   ([e a v write remove-write]
      (Tuple. (entity e) a v (entity write) (entity remove-write))))
@@ -75,7 +76,7 @@ be used in preference to the Tuple. ctor."
                       ; must be a list/seq TODO file an issue/patch for that
                       (extend-type #+clj (identity type) #+cljs type
                         AsTuples
-                        (as-tuples [x] (apply tuple x)))
+                        (as-tuples [x] [(apply tuple x)]))
                       (map? x)
                       (extend-type #+clj (identity type) #+cljs type
                         AsTuples
