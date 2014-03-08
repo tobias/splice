@@ -8,6 +8,13 @@
 ; (http://arxiv.org/abs/0907.0929) and Preguiça et al. "A commutative replicated
 ; data type for cooperative editing"
 ; (http://hal.inria.fr/docs/00/44/59/75/PDF/icdcs09-treedoc.pdf).
+; Big difference is that this is a poset, not totally ordered; duplicate
+; identifiers can exist.
+; The big TODO TODO TODO is to provide a way to disambiguate identifiers, either
+; via a given disambiguator (which might be known-unique), or (maybe more
+; likely) probabilistically (i.e. choose midpoints randomly), since we probably
+; will care more about preventing interleaving of contiguous insertions made by
+; concurrent actors.
 
 ; These identifiers should be shallow/small enough to remain efficient for all
 ; known use cases, esp. if intermediate structure (DOM, etc) is in place.
@@ -182,5 +189,4 @@
 (defn before [^Rank rank] (Rank. (before* (.-string rank))))
 (defn after [^Rank rank] (Rank. (after* (.-string rank))))
 (defn between [^Rank a ^Rank b] (Rank. (between* (.-string a) (.-string b))))
-
 

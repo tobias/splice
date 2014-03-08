@@ -660,7 +660,7 @@ its sequential specification:
     sources of tuples is very low, and (b) the software that is producing tuples
     is produced by a small number of organizations.  It's an issue when
     untrusted actors attempt to co-replicate, without any trusted authority in
-    the middle / arbitrating.
+    the middle / arbitrating.  "Just use UUIDs" isn't a plan; think Globally.
 * Efficient reactive query is a must: esp. if replication is to be driven off of
   access control properties, ensuring that a query can emit a result immediately
   upon receiving e.g. the final missing tuple is critical compared to the
@@ -694,6 +694,12 @@ its sequential specification:
 
 ### Implementation(s)
 
+* (partially) ordered data
+  * Rank strings work, but do not support any notion of either unique
+    disambiguators or statistically unique midpoints (so e.g. concurrent edits
+    at the same "position" in some text by multiple actors will yield
+    interleaved content).  Lots of wiggle-room for addressing that, will get
+    back to it when it matters more.
 
 ## Design decision non sequiturs
 
