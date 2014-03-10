@@ -186,6 +186,9 @@
       (str (subs s 0 lc-pos) (char (inc lc))))))
 
 (def origin (rank origin*))
+(def low (rank LOW))
+(def high (rank HIGH))
+
 (defn before [^Rank rank] (Rank. (before* (.-string rank))))
 (defn after [^Rank rank] (Rank. (after* (.-string rank))))
 (defn between [^Rank a ^Rank b] (Rank. (between* (.-string a) (.-string b))))
