@@ -193,6 +193,7 @@
                     (set/join results))
                   results))))
 
+#+clj
 (defn- echo [x] (clojure.pprint/pprint x) x)
 
 (defn query

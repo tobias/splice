@@ -6,7 +6,7 @@
             #+clj [clojure.core.async :as async :refer (go go-loop >! <! alts!)]
             #+cljs [cljs.core.async :as async :refer (>! <!)])
   #+cljs (:require-macros [cemerick.splice.memory.planning :refer (plan)]
-                          [cljs.core.async.macros :refer (go go-loop alts!)]))
+                          [cljs.core.async.macros :refer (go go-loop)]))
 
 ; I want to write:
 ; (q space (plan {:select [?t]

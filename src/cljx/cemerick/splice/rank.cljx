@@ -23,7 +23,7 @@
 (defn- char-code [^String s idx] (#+clj .codePointAt #+cljs .charCodeAt s idx))
 (defn- char-code-seq [s] (map #(char-code s %) (range (count s))))
 (defn sign
-  [^long x]
+  [#+cljs x #+clj ^long x]
   (if (zero? x) 0 (/ x (Math/abs x))))
 
 (deftype Rank [string]
