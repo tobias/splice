@@ -18,7 +18,7 @@
         ctrl (rep/peering-replication src tgt)
         query (plan {:select [?k ?v ?write]
                      :where [["foo" ?k ?v ?write]]})]
-    (swap! src s/write [{:a 5 :db/eid "foo" :b 6}])
+    (swap! src s/write [{:a 5 ::s/e "foo" :b 6}])
     ; TODO how to *actually* monitor replication?
     (block-or-done
      (go (<! (async/timeout 500))
@@ -34,7 +34,7 @@
         query (plan {:select [?k ?v ?write]
                      :where [["foo" ?k ?v ?write]]})
         complete (async/chan)]
-    (swap! src s/write [{:a 5 :db/eid "foo" :b 6}])
+    (swap! src s/write [{:a 5 ::s/e "foo" :b 6}])
     ; TODO how to *actually* monitor replication?
     (add-watch tgt :repl
                (fn [_ _ _ ts]

@@ -13,9 +13,9 @@
                           [cemerick.cljs.test :refer (deftest is are)]))
 
 (deftest basic-queries
-  (let [s1 (write (in-memory) [{:a 6 :b 12 :db/eid "x"}])
-        s2 (write s1 {:some-meta :p} [{:b 6 :db/eid "y"}])
-        space (write s2 {:some-meta true} [{:b "c" :db/eid "y"}])]
+  (let [s1 (write (in-memory) [{:a 6 :b 12 ::s/e "x"}])
+        s2 (write s1 {:some-meta :p} [{:b 6 ::s/e "y"}])
+        space (write s2 {:some-meta true} [{:b "c" ::s/e "y"}])]
     (are [result query] (= (set result) (set-check (q space (plan query))))
          [[(entity "x") 6]] {:select [?e ?v]
                              :where [[?e :b 12]
@@ -118,9 +118,9 @@
     ; entity-reference lookup/coercion / timestamp checks
     (is (not (pos? (apply compare (first (q space (plan {:select [?xtime ?ytime]
                                                          :where [["x" _ _ ?xwrite]
-                                                                 [?xwrite :db/otime ?xtime]
+                                                                 [?xwrite :clock/wall ?xtime]
                                                                  ["y" :b "c" ?ywrite]
-                                                                 [?ywrite :db/otime ?ytime]]})))))))
+                                                                 [?ywrite :clock/wall ?ytime]]})))))))
     
     ; args
     (is (= [[(entity "x") :b 12]] (q space (plan {:select [?e ?a ?v]
@@ -137,11 +137,11 @@
 
 ; TODO how is this working *AT ALL*?  
 (deftest composite-values
-  (let [space (write (in-memory) [{:a [4 5 6] :b #{1 2 3} :db/eid "x"}])]
+  (let [space (write (in-memory) [{:a [4 5 6] :b #{1 2 3} ::s/e "x"}])]
 
     (is (thrown-with-msg? #+clj Throwable #+cljs js/Error
           #".*No way to encode value of type.+"
-          (write space [{:c #{#{1 2 3}} :db/eid "y"}])))
+          (write space [{:c #{#{1 2 3}} ::s/e "y"}])))
     
     (are [result query] (= (set result) (set-check (q space (plan query))))
          [[1] [2] [3]] {:select [?v]
@@ -158,8 +158,8 @@
 
 (deftest implicit-disjunctions
   (let [space (-> (in-memory)
-                (write [{:b #{1 2 3} :db/eid "x"}])
-                (write [{:a #{4 5} :d #{7 8 9} :db/eid "y"}]))]
+                (write [{:b #{1 2 3} ::s/e "x"}])
+                (write [{:a #{4 5} :d #{7 8 9} ::s/e "y"}]))]
     (are [result query] (= (set result) (set-check (q space (plan query))))
       [[:b] [:d]] {:select [?a]
                    :where [[_ ?a #{3 9}]]}
@@ -172,10 +172,10 @@
 
 (deftest subqueries
   (let [space (-> (in-memory)
-                (write [{:head true :ref (entity "y") :db/eid "x"}
-                        {:x 1 :ref (entity "z") :db/eid "y"}
-                        {:x 2 :ref (entity "a") :db/eid "z"}
-                        {:x 3 :db/eid "a"}]))]
+                (write [{:head true :ref (entity "y") ::s/e "x"}
+                        {:x 1 :ref (entity "z") ::s/e "y"}
+                        {:x 2 :ref (entity "a") ::s/e "z"}
+                        {:x 3 ::s/e "a"}]))]
     (is (= #{[(entity "x") (entity "y")] [(entity "x") (entity "z")] [(entity "x") (entity "a")]}
           (set-check (q space (plan {:select [?head ?c]
                            :args [?head]
@@ -248,7 +248,7 @@
                     :where #{[[?head :html/element ?el]]
                              [[?head :html/children ?ch]
                               [[?el] (recur ?ch)]]}})
-             (entity (:db/eid html))))))))
+             (entity (::s/e html))))))))
 
 (deftest html-attributes
   (let [space (write (in-memory) [html])]
@@ -271,7 +271,7 @@
                  [[?el ?attr] (recur ?ch)]]}})))
 
 (deftest deletes
-  (let [s (write (in-memory) [{:a #{"y" :x 1 2} :b #{2 4} :db/eid "x"}])]
+  (let [s (write (in-memory) [{:a #{"y" :x 1 2} :b #{2 4} ::s/e "x"}])]
     (is (= #{[1] [2]} (set-check (q s (plan {:select [?v] :where [[_ :a ?v] (number? ?v)]})))))
     (let [attr-writes (set-check (q s (plan {:select [?a ?t] :where [[_ ?a 2 ?t]]})))
           remove-tuples (map

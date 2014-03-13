@@ -47,13 +47,13 @@
 (defn site-idq
   [space]
   (ffirst (q/q space (p/plan {:select [?site]
-                              :where [["-local-config" :db/-site-id ?site]]}))))
+                              :where [["-local-config" :local.quilt/site-id ?site]]}))))
 
 (defn in-memory
   ([]
      (let [site-id (random-uuid)
-           [_ tuples] (s/prep-write nil [{:db/eid "-local-config"
-                                          :db/-site-id site-id}])]
+           [_ tuples] (s/prep-write nil [{::s/e "-local-config"
+                                          :local.quilt/site-id site-id}])]
        (s/write* (MemSpace. site-id 0 {} q/empty-indexes) tuples)))
   ([init-tuples]
      (let [indexes (add-tuples q/empty-indexes init-tuples)

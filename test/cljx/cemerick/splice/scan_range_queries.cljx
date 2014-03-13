@@ -13,9 +13,9 @@
                           [cemerick.cljs.test :refer (deftest is are)]))
 
 (def space (-> (in-memory)
-             (write [{:a 6 :b 12 :db/eid "x"}])
-             (write [{:b 6 :db/eid "y"}])
-             (write [{:b "c" :db/eid "y"}])))
+             (write [{:a 6 :b 12 ::s/e "x"}])
+             (write [{:b 6 ::s/e "y"}])
+             (write [{:b "c" ::s/e "y"}])))
 
 (deftest basic
   (are [result query] (= (set result) (set-check (q space (plan query))))

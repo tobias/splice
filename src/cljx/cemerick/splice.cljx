@@ -47,21 +47,21 @@ be used in preference to the Tuple. ctor."
 
 (defn- map->tuples
   [m]
-  (if-let [[_ e] (find m :db/eid)]
-    (let [s (seq (dissoc m :db/eid))]
+  (if-let [[_ e] (find m ::e)]
+    (let [s (seq (dissoc m ::e))]
       (if s
         (mapcat (fn [[k v]]
                   (let [v (if (set? v) v #{v})]
                     (let [maps (filter map? v)
                           other (concat
                                   (remove map? v)
-                                  (map (comp entity :db/eid) maps))]
+                                  (map (comp entity ::e) maps))]
                       (concat
                         (mapcat map->tuples maps)
                         (map (fn [v] (tuple e k v nil nil)) other)))))
           s)
         (throw-arg "Empty Map cannot be tuple-ized.")))
-    (throw-arg "Map cannot be tuple-ized, no :db/eid")))
+    (throw-arg "Map cannot be tuple-ized, no ::e")))
 
 (extend-protocol AsTuples
   nil
@@ -151,7 +151,7 @@ placeholders will be replaced with the same eid."
         _ (assert (not-any? :write tuples)
                   (str "Data provided to `write` already has :write tag " (some :write tuples)))
         write (peid (gensym "write"))
-        op-meta (assoc op-meta :db/otime time :db/eid write)
+        op-meta (assoc op-meta :clock/wall time ::e write)
         tuples (->> tuples
                     (concat (as-tuples op-meta))
                     (add-write-tag write))]
@@ -168,8 +168,8 @@ a map of operation metadata, first converting it to tuples with `as-tuples`."
 (defn- replicated-write-meta
   [write-eid]
   (let [time (now)]
-    (->> [{:db/eid write-eid :db/-repl-time time}
-          {:db/eid (peid 'write1) :db/otime time}]
+    (->> [{::e write-eid :db/-repl-time time}
+          {::e (peid 'write1) :clock/wall time}]
          (mapcat as-tuples)
          (add-write-tag (peid 'write1)))))
 
@@ -181,12 +181,13 @@ a map of operation metadata, first converting it to tuples with `as-tuples`."
 (def index-top sedan/top)
 
 (defn assign-map-ids
-  "Walks the provided collection, adding :db/eid's to all maps that don't have one already."
+  "Walks the provided collection, adding a :cemerick.splice/eid slot to all maps
+that don't have one already."
   [m]
   (walk/postwalk
     (fn [x]
       (cond
         (not (map? x)) x
-        (contains? x :db/eid) x
-        :else (assoc x :db/eid (random-uuid))))
+        (contains? x ::e) x
+        :else (assoc x ::e (random-uuid))))
     m))
