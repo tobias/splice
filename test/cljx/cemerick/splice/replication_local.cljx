@@ -8,7 +8,8 @@
             #+cljs [cljs.core.async :as async :refer (>! <! alts!)]
             [cemerick.cljs.test :as t :refer (#+clj block-or-done)])
   #+cljs (:require-macros [cemerick.splice.memory.planning :refer (plan)]
-                          [cemerick.cljs.test :refer (deftest is are block-or-done run-tests done with-test-ctx)]
+                          [cemerick.cljs.test :refer (deftest is are block-or-done
+                                                       run-tests done with-test-ctx)]
                           [cljs.core.async.macros :refer (go)])
   #+clj (:use clojure.test))
 
@@ -25,7 +26,18 @@
          (let [query (plan {:select [?k ?v ?write]
                             :where [["foo" ?k ?v ?write]]})]
            (is (= (set (q @src query)) (set (q @tgt query)))))
-         (async/close! ctrl)))))
+         
+         ; cancel replication
+         (>! ctrl true)
+
+         (let [last-write (-> @src meta ::mem/last-write)
+               bar-query (plan {:select [?c]
+                                      :where [[_ :c ?c]]})]
+           (swap! src s/write [{:c "bar" ::s/e "foo"}])
+           (is (= [["bar"]] (q @src bar-query)))
+           (<! (async/timeout 500))
+           (is (empty? (q @tgt bar-query)))
+           (is (= last-write (:last-write (<! ctrl)))))))))
 
 (deftest ^:async simplest-watcher
   (let [src (atom (in-memory))

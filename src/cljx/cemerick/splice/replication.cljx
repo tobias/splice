@@ -30,48 +30,59 @@ closed.  (This control semantic is deeply flawed, TODO will be revisited.)"
         write-channel (async/chan)
         watch-key (gensym (str "watch-" since-write))
         changes (async/chan (async/dropping-buffer 1))]
+    ; ensure that we check for matching writes at least once right away
+    (async/put! changes true)
+
     (add-watch space-ref watch-key
                (fn [watch-key space-ref old-space space]
                  (go (>! changes true))))
+
     ; TODO if the reader of the write channel goes away, these puts will block,
     ; and the watcher and any set of pending found writes will persist
-    ; forever. Are timeouts the only mechanism we have to break this
+    ; ~forever. Are timeouts the only mechanism we have to break this
     ; coordination problem?
-    (go (loop [last-matching-write since-write
-               writes (local-writes-since @space-ref since-write)]
-          (if-let [w (first (seq writes))]
-            (do (>! write-channel w)
-                (when (first (alts! [control-channel (async/timeout 15000)]))
-                  (recur (:write (first w)) (rest writes))))
-            (when (<! changes)
-              (recur last-matching-write (local-writes-since @space-ref last-matching-write)))))
-        (async/close! write-channel)
-        (remove-watch space-ref watch-key))
-    write-channel))
+    (go
+      (loop [last-matching-write since-write
+             writes nil]
+        (if-let [w (first writes)]
+          (do (>! write-channel w)
+              (when (first (alts! [control-channel (async/timeout 15000)]))
+                (recur (:write (first w)) (rest writes)))) 
+          (when (<! changes)
+            (recur last-matching-write
+              (do (local-writes-since @space-ref last-matching-write))))))
 
-(defn replicated-write
-  [space tuples]
-  )
+      (async/close! write-channel)
+      (remove-watch space-ref watch-key))
+    
+    write-channel))
 
 (defn peering-replication
   [src dest]
-  (let [ctrl (async/chan)
+  (let [matching-write-control (async/chan)
         ; TODO find dest site-id, start from most recent in src from that site
-        writes (matching-write-channel src nil ctrl)]
+        writes (matching-write-channel src nil matching-write-control)
+        replication-control (async/chan)]
     (go-loop [last-write nil]
-             (let [w (<! writes)
-                   write-eid (:write (first w))]
-               (if-not w
-                 last-write
-                 ; TODO add replication-time metadata in new local write
-                 ; TODO checking to see if the replicated write is in dest
-                 ; already or not stinks of non-idempotency; only relevant b/c
-                 ; of the local write containing replication-time
-                 (do (when-not (seq (q/q @dest (plan {:select [?t]
-                                                      :args [?write]
-                                                      :where [[?write :db/otime ?t]]})
-                                         write-eid))
-                       (swap! dest s/write* w)) 
-                     (>! ctrl true)
-                     (recur write-eid)))))
-    ctrl))
+      (let [[v from-chan] (alts! [writes replication-control])]
+        (if-not (coll? v)
+          ; either a "cancel" signal via the control channel, or the matching-write-channel
+          ; was closed
+          (>! replication-control {:last-write last-write})
+          ; TODO checking to see if the replicated write is in dest
+          ; already or not stinks of non-idempotency; only relevant b/c
+          ; of the local write containing replication-time
+          (let [write-eid (:write (first v))]
+            (when-not (seq (q/q @dest (plan {:select [?t]
+                                               :args [?write]
+                                               :where [[?write :clock/wall ?t]]})
+                               write-eid))
+                (swap! dest s/replicated-write v)) 
+              (>! matching-write-control true)
+              (recur write-eid)))))
+    replication-control))
+
+#_#_#_
+(def a (atom (mem/in-memory)))
+(def b (atom (mem/in-memory)))
+(def ctrl (peering-replication a b))

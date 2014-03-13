@@ -174,8 +174,13 @@ a map of operation metadata, first converting it to tuples with `as-tuples`."
          (add-write-tag (peid 'write1)))))
 
 (defn replicated-write
-  [this write-eid write-tuples]
-  (write* this (concat write-tuples (replicated-write-meta write-eid))))
+  [space write-tuples]
+  (let [write-eid (:write (first write-tuples))]
+    (when-not write-eid
+      (throw (ex-info 
+               "Cannot determine write eid from tuples to be written from replication"
+               {:write-tuples write-tuples})))
+    (write* space (concat write-tuples (replicated-write-meta write-eid)))))
 
 (def index-bottom sedan/bottom)
 (def index-top sedan/top)
@@ -191,3 +196,12 @@ that don't have one already."
         (contains? x ::e) x
         :else (assoc x ::e (random-uuid))))
     m))
+
+(defn tuple-seq
+  "Returns a seq of all tuples in the [space]. Only intended for use when debugging."
+  [space]
+  (scan space [:e :a :v :write :remove-write]
+    (apply tuple (repeat 5 index-bottom))
+    (apply tuple (repeat 5 index-top))))
+
+
