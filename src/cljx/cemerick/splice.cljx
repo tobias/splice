@@ -200,7 +200,7 @@ that don't have one already."
 (defn tuple-seq
   "Returns a seq of all tuples in the [space]. Only intended for use when debugging."
   [space]
-  (scan space [:e :a :v :write :remove-write]
+  (scan space [:write :e :a :v :remove-write]
     (apply tuple (repeat 5 index-bottom))
     (apply tuple (repeat 5 index-top))))
 
