@@ -12,6 +12,42 @@
   #+cljs (:require-macros [cemerick.splice.memory.planning :refer (plan)]
                           [cemerick.cljs.test :refer (deftest is are)]))
 
+; want to be able to write something like this:
+; (defaulting bindings)
+#_
+(cemerick.splice.memory.query/q @local
+		   (cemerick.splice.memory.planning/plan
+		     {:select [?ref ?rank ?text]
+		      :args [?head]
+		      :where #{[[?head :html/text ?text]
+				[?head :rank ?rank]
+				]
+			       [[?head :html/children ?ref]
+				[[?rank ?text] [nil nil]]
+				]}})
+		   "388e25ed-5d32-4c5b-be9e-b50f7b6524c2")
+
+; broken: ?eid is sometimes unbound, but the `subs` expression is still evaluated
+#_
+(defn- chars-within-root
+  [space eid]
+  (cemerick.splice.memory.query/q space
+    (cemerick.splice.memory.planning/plan
+      {:select [?e ?t]
+       :args [?head]
+       :subs {:children {:select [?head ?t]
+                         :args [?head]
+                         :where #{[[?head :html/text ?t]]
+                                  [[?head :html/children ?ch]
+                                   [[?e ?t] (recur ?ch)]]}}}
+       :where [[[?eid ?t] (q :children ?head)]
+               [?e (subs ?eid 0 8)]]})
+    eid))
+;data
+#_
+[["-local-config" :local.quilt/site-id "d29e7d1d-424f-4993-a7ad-8193dd1b9e89" ["d29e7d1d-424f-4993-a7ad-8193dd1b9e89" 1]] ["00fa3aa8-0b56-4153-9e3b-84865b6b0f03" :rank "Ͽ" ["d29e7d1d-424f-4993-a7ad-8193dd1b9e89" 2]] ["00fa3aa8-0b56-4153-9e3b-84865b6b0f03" :html/text "x" ["d29e7d1d-424f-4993-a7ad-8193dd1b9e89" 2]] ["86a76c5e-e0ac-4d58-bb1e-374c242c28f3" :html/children "98d7dc6c-5f7c-454b-af99-d5e17b1e6e25" ["d29e7d1d-424f-4993-a7ad-8193dd1b9e89" 2]] ["98d7dc6c-5f7c-454b-af99-d5e17b1e6e25" :rank "Ͽ" ["d29e7d1d-424f-4993-a7ad-8193dd1b9e89" 2]] ["98d7dc6c-5f7c-454b-af99-d5e17b1e6e25" :doc/element :block ["d29e7d1d-424f-4993-a7ad-8193dd1b9e89" 2]] ["98d7dc6c-5f7c-454b-af99-d5e17b1e6e25" :html/children "00fa3aa8-0b56-4153-9e3b-84865b6b0f03" ["d29e7d1d-424f-4993-a7ad-8193dd1b9e89" 2]] [["d29e7d1d-424f-4993-a7ad-8193dd1b9e89" 1] :clock/wall #inst "2014-03-10T11:01:31.948-00:00" ["d29e7d1d-424f-4993-a7ad-8193dd1b9e89" 1]] [["d29e7d1d-424f-4993-a7ad-8193dd1b9e89" 2] :clock/wall #inst "2014-03-10T11:01:35.761-00:00" ["d29e7d1d-424f-4993-a7ad-8193dd1b9e89" 2]]]
+
+
 (deftest basic-queries
   (let [s1 (write (in-memory) [{:a 6 :b 12 ::s/e "x"}])
         s2 (write s1 {:some-meta :p} [{:b 6 ::s/e "y"}])
