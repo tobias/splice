@@ -4,10 +4,15 @@
             [cemerick.splice.memory.query :as q :refer (q)]
             #+clj [cemerick.splice.memory.planning :refer (plan)]
             #+clj [clojure.core.async :as async :refer (go go-loop >! <! alts!)]
-            #+cljs [cljs.core.async :as async :refer (>! <!)])
+            #+cljs [cljs.core.async :as async :refer (>! <!)]
+            [clojure.string :as str])
   #+cljs (:require-macros [cemerick.splice.memory.planning :refer (plan)]
                           [cljs.core.async.macros :refer (go go-loop)]))
 
+; TODO scanning the index directly is more efficient, but we need to be able to
+; insert arbitrary queries to define the scope of replication. So, for all
+; entities defined by the ACP query, find all writes that affect them >
+; since-write, and then proceed with write eligibility from there
 (defn- local-writes-since
   [space [site-id _ :as since-write]]
   (->> (s/scan space [:write :e :a :v :remove-write]
@@ -15,6 +20,46 @@
          (s/tuple s/index-top s/index-top s/index-top [site-id s/index-top]))
        (drop-while #(= since-write (:write %)))
        (partition-by :write)))
+
+(defn- local-writes-since'
+  [space since-write]
+  (q space (plan {:select [?t]
+                  :args [?since-write]
+                  :where [[_ _ _ (< ?since-write ?w) :as ?t]
+                          ]}))
+  )
+
+; might have gone overboard with the helper fns here...
+(defn- named?
+  "Returns true if [x] is 'named', i.e. a keyword or symbol."
+  [x]
+  #+clj (instance? clojure.lang.Named x) #+cljs (satisfies? INamed x))
+
+(defn- attribute-of
+  [x]
+  (cond
+    (named? x) x
+    (s/tuple? x) (:a x)))
+
+(defn- attribute-namespace
+  [x]
+  (some-> x attribute-of namespace (str/split #"\.")))
+
+(defn- local-attribute?
+  [x]
+  (= "local" (first (attribute-namespace x))))
+
+(defn- replication-eligible-writes
+  [write]
+  (let [write (remove local-attribute? write)]
+    (when-not (= #{["clock"]} (set (map attribute-namespace write)))
+      write)))
+
+(defn- replication-eligible-writes-since
+  [space since-write]
+  (->> (local-writes-since space since-write)
+    (map replication-eligible-writes)
+    (remove nil?)))
 
 (defn matching-write-channel
   "Returns a channel that yields writes (i.e. collections of tuples, each of
@@ -50,7 +95,7 @@ closed.  (This control semantic is deeply flawed, TODO will be revisited.)"
                 (recur (:write (first w)) (rest writes)))) 
           (when (<! changes)
             (recur last-matching-write
-              (do (local-writes-since @space-ref last-matching-write))))))
+              (replication-eligible-writes-since @space-ref last-matching-write)))))
 
       (async/close! write-channel)
       (remove-watch space-ref watch-key))
@@ -82,7 +127,8 @@ closed.  (This control semantic is deeply flawed, TODO will be revisited.)"
               (recur write-eid)))))
     replication-control))
 
-#_#_#_
+#_#_#_#_
 (def a (atom (mem/in-memory)))
 (def b (atom (mem/in-memory)))
 (def ctrl (peering-replication a b))
+(dotimes [x 20] (swap! a s/write [{::s/e "m" :x x}]))
