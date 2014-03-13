@@ -33,5 +33,20 @@
                     :where [[_ :b (<= 6 ?v 500)]]}
 
        #{[12]} {:select [?v]
-                :where [[_ :b (< 6 ?v 500)]]}
-       ))
+                :where [[_ :b (< 6 ?v 500)]]}))
+
+(deftest with-args
+  (are [result query args] (= (set result)
+                             (set-check (apply q space (plan query) args)))
+
+       #{[12] ["c"]}
+       {:select [?v]
+        :args [?bottom]
+        :where [[_ :b (< ?bottom ?v)]]}
+       [6]
+
+       #{[12]}
+       {:select [?v]
+        :args [?bottom ?top]
+        :where [[_ :b (< ?bottom ?v ?top)]]}
+       [6 "a"]))

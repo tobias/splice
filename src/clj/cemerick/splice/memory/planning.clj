@@ -130,16 +130,22 @@ well as expression clauses."
     ;; not so much
     ([(:or '< '<=) lower higher] :seq)
     (cond
-      (every? q/binding? [lower higher])
+      (and (every? q/binding? [lower higher])
+        (not (bindings lower))
+        (not (bindings higher)))
       (throw (IllegalArgumentException.
                (str "No free variable found in scan range expression:" expr)))
       
       ; (< ?a "foo")
-      (q/binding? lower)
+      (and (q/binding? lower)
+        (or (not (q/binding? higher))
+          (bindings higher)))
       (list (first expr) q/bottom-symbol lower higher)
 
       ; (< "foo" ?a)
-      (q/binding? higher)
+      (and (q/binding? higher)
+        (or (not (q/binding? lower))
+          (bindings lower)))
       (list (first expr) lower higher q/top-symbol)
 
       :else
@@ -148,13 +154,19 @@ well as expression clauses."
 
     ([(:or '< '<=) bottom free top] :seq)
     (cond
-      (every? bindings [bottom top])
-      (throw (IllegalArgumentException.
-               (str "Bottom and top of scan range expression not bound: " expr)))
       (contains? bindings free)
       (throw (IllegalArgumentException.
                (str "Middle member of scan range expression is bound: " expr)))
-      :else (apply list expr))
+
+      (and (q/binding? free)
+        (every? (fn [sym] (or (not (q/binding? sym))
+                            (bindings sym)))
+          [bottom top]))
+      (apply list expr)
+
+      :else
+      (throw (IllegalArgumentException.
+               (str "Invalid scan range expression: " expr))))
 
     (x :guard q/variable?)
     (list '<= q/bottom-symbol x q/top-symbol)
