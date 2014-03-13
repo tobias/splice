@@ -8,23 +8,6 @@
   #+cljs (:require-macros [cemerick.splice.memory.planning :refer (plan)]
                           [cljs.core.async.macros :refer (go go-loop)]))
 
-; I want to write:
-; (q space (plan {:select [?t]
-;                 :args [?since]
-;                 :where [[_ _ _ (< ?since ?w) :as ?t]]})
-;    last-write)
-
-#_
-{:select [?attr]
- :args [?start ?end]
- :where [[_ (<= ?start ?attr ?end)]]}
-
-; (< ?arg ?v) => (< ?arg ?v *top*)
-; (< ?v arg?) => (< *bottom* ?v arg?)
-; TODO need to support > >= < <= expressions in match clauses
-; TODO how to characterize order? Implicit from the different range expressions
-; in match clauses?
-
 (defn- local-writes-since
   [space [site-id _ :as since-write]]
   (->> (s/scan space [:write :e :a :v :remove-write]
