@@ -168,7 +168,7 @@ a map of operation metadata, first converting it to tuples with `as-tuples`."
 (defn- replicated-write-meta
   [write-eid]
   (let [time (now)]
-    (->> [{::e write-eid :db/-repl-time time}
+    (->> [{::e write-eid :clock/wall-repl time}
           {::e (peid 'write1) :clock/wall time}]
          (mapcat as-tuples)
          (add-write-tag (peid 'write1)))))
