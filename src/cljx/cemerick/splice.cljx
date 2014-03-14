@@ -1,5 +1,5 @@
 (ns cemerick.splice
-  (:require [cemerick.splice.types :refer (entity)]
+  (:require [cemerick.splice.types]
             [cemerick.splice.hosty :refer (now current-time-ms)]
             [cemerick.splice.uuid :refer (time-uuid random-uuid)]
             [cemerick.sedan :as sedan]
@@ -30,13 +30,11 @@
 (defn tuple? [x] (instance? Tuple x))
 
 (defn tuple
-  "Positional factory function for class cemerick.splice.Tuple that coerces any
-implicit entity references to Entity instances.  This fn should therefore always
-be used in preference to the Tuple. ctor."
+  "Positional factory function for class cemerick.splice.Tuple with convenience arities."
   ([e a v] (tuple e a v nil nil))
   ([e a v write] (tuple e a v write nil))
   ([e a v write remove-write]
-     (Tuple. (entity e) a v (entity write) (entity remove-write))))
+     (Tuple. e a v write remove-write)))
 
 (let [tuple->vector* (juxt :e :a :v :write)]
   (defn tuple->vector
@@ -55,7 +53,7 @@ be used in preference to the Tuple. ctor."
                     (let [maps (filter map? v)
                           other (concat
                                   (remove map? v)
-                                  (map (comp entity ::e) maps))]
+                                  (map ::e maps))]
                       (concat
                         (mapcat map->tuples maps)
                         (map (fn [v] (tuple e k v nil nil)) other)))))

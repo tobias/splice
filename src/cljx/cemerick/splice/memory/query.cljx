@@ -2,7 +2,6 @@
   #+clj (:require [cemerick.splice.memory.indexing :refer (index-comparator)])
   #+cljs (:require-macros [cemerick.splice.memory.indexing :refer (index-comparator)])
   (:require [cemerick.splice :as s :refer (->Tuple)]
-            [cemerick.splice.types :refer (entity)]
             [cemerick.sedan :as sedan] ; used by index-comparator
             [clojure.set :as set]))
 

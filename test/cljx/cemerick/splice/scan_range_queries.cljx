@@ -2,7 +2,6 @@
   (:require [cemerick.splice :as s :refer (write)]
             [cemerick.splice.memory.query :as q :refer (q)]
             [cemerick.splice.test :refer (set-check)]
-            [cemerick.splice.types :refer (entity)]
             [cemerick.splice.memory :as mem :refer (in-memory)]
             [cemerick.splice.rank :as rank]
             #+clj [cemerick.splice.memory.planning :refer (plan) :as plan]
