@@ -14,33 +14,39 @@
   #+clj (:use clojure.test))
 
 (deftest ^:async simplest
-  (let [src (atom (in-memory))
-        tgt (atom (in-memory))
-        ctrl (rep/peering-replication src tgt)
+  (let [a (atom (in-memory))
+        b (atom (in-memory))
+        c (atom (in-memory))
+        ctrl (rep/peering-replication a b)
+        ctrl' (rep/peering-replication b c)
         query (plan {:select [?k ?v ?write]
                      :where [["foo" ?k ?v ?write]]})]
-    (swap! src s/write [{:a 5 ::s/e "foo" :b 6}])
+    (swap! a s/write [{:a 5 ::s/e "foo" :b 6}])
     ; TODO how to *actually* monitor replication?
     (block-or-done
      (go (<! (async/timeout 500))
-         (let [query (plan {:select [?k ?v ?write]
-                            :where [["foo" ?k ?v ?write]]})]
-           (is (= (set (q @src query)) (set (q @tgt query)))))
+         (is (= (set (q @a query))
+               (set (q @b query))
+               (set (q @c query))))
 
-         (let [replicated-write (-> @src meta ::mem/last-write)]
-           (is (:local/replicated (mem/entity-map @tgt replicated-write))))
+         (let [replicated-write (-> @a meta ::mem/last-write)]
+           (is (:local/replicated (mem/entity-map @b replicated-write)))
+           (is (:local/replicated (mem/entity-map @c replicated-write))))
          
          ; cancel replication
          (>! ctrl true)
+         (>! ctrl' true)
 
-         (let [last-write (-> @src meta ::mem/last-write)
+         (let [last-write (-> @a meta ::mem/last-write)
                bar-query (plan {:select [?c]
                                 :where [[_ :c ?c]]})]
-           (swap! src s/write [{:c "bar" ::s/e "foo"}])
-           (is (= [["bar"]] (q @src bar-query)))
+           (swap! a s/write [{:c "bar" ::s/e "foo"}])
+           (is (= [["bar"]] (q @a bar-query)))
            (<! (async/timeout 500))
-           (is (empty? (q @tgt bar-query)))
-           (is (= last-write (:last-write (<! ctrl)))))))))
+           (is (empty? (q @b bar-query)))
+           (is (empty? (q @c bar-query)))
+           (is (= last-write (:last-write (<! ctrl))))
+           (is (= last-write (:last-write (<! ctrl')))))))))
 
 (deftest ^:async simplest-watcher
   (let [src (atom (in-memory))

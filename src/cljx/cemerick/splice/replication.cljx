@@ -49,16 +49,40 @@
   [x]
   (= "local" (first (attribute-namespace x))))
 
+(defn- writes-replicated-by
+  "Returns a nested seq of tuples, partitioned by :write, that were replicated
+into [space] from other sites based on the metadata added to those writes by the
+'replication' write identified by [write-eid]."
+  [space write-eid]
+  (->> (q space (plan {:select [?t]
+                   :args [?local-write]
+                   :where [[?write :local/replicated true ?local-write]
+                           [_ _ _ ?write :as ?t]]})
+     write-eid)
+    (apply concat)
+    (partition-by :write)))
+
 (defn- replication-eligible-writes
-  [write]
-  (let [write (remove local-attribute? write)]
-    (when-not (= #{["clock"]} (set (map attribute-namespace write)))
-      write)))
+  "Starting from the given [write] (a seq of tuples), returns a seq of writes,
+  each themselves a seq of tuples that are eligible for replication.  May return
+  nil if no tuples from the given write are eligible for replication or none are
+  linked to previously-replicated writes via `:local/replicated` attributes
+  added to those replicated writes entites.  [write] is presumed to be a
+  \"local\" write.  The specific rules for replication eligibility are described
+  in the README."
+  [space write]
+  (let [attrs (set (map attribute-of write))]
+    (if (attrs :local/replicated)
+      ; replication metadata write, replace with the replicated write
+      (writes-replicated-by space (:write (first write)))
+      (let [write (remove local-attribute? write)]
+        (when-not (= #{["clock"]} (set (map attribute-namespace write)))
+          [write])))))
 
 (defn- replication-eligible-writes-since
   [space since-write]
   (->> (local-writes-since space since-write)
-    (map replication-eligible-writes)
+    (mapcat (partial replication-eligible-writes space))
     (remove nil?)))
 
 (defn matching-write-channel
@@ -127,8 +151,10 @@ closed.  (This control semantic is deeply flawed, TODO will be revisited.)"
               (recur write-eid)))))
     replication-control))
 
-#_#_#_#_
-(def a (atom (mem/in-memory)))
-(def b (atom (mem/in-memory)))
-(def ctrl (peering-replication a b))
-(dotimes [x 20] (swap! a s/write [{::s/e "m" :x x}]))
+(comment (def a (atom (mem/in-memory)))
+         (def b (atom (mem/in-memory)))
+         (def c (atom (mem/in-memory)))
+         (def ctrl (peering-replication a b))
+         (def ctrl2 (peering-replication b c))
+         (swap! a s/write [{::s/e "m" :x 0}])
+         (dotimes [x 20] (swap! a s/write [{::s/e "m" :x x}])))
