@@ -48,6 +48,33 @@
            (is (= last-write (:last-write (<! ctrl))))
            (is (= last-write (:last-write (<! ctrl')))))))))
 
+(deftest ^:async never-replicate-local-attrs
+  (let [a (atom (in-memory))
+        b (atom (in-memory))
+        last-write (::mem/last-write (meta @b))
+        ctrl (rep/peering-replication a b)
+        query (plan {:select [?k ?v ?write]
+                     :where [["foo" ?k ?v ?write]]})]
+    (swap! a s/write [{:local/a 5 ::s/e "foo"}])
+    ; TODO how to *actually* monitor replication?
+    (block-or-done
+     (go (<! (async/timeout 500))
+       (is (= last-write (::mem/last-write (meta @b))))
+
+       (swap! a s/write [{'local/a 6 :a 7 ::s/e "foo"}])
+
+       (<! (async/timeout 500))
+       (is (not= last-write (::mem/last-write (meta @b))))
+       (let [query (plan {:select [?a]
+                          ; TODO symbols passed to plan can't be quoted, this is wrong
+                          :where #{[["foo" local/a ?a]]
+                                   [["foo" :local/a ?a]]}})]
+         (is (= [[7 (::mem/last-write (meta @a))]]
+               (q @b (plan {:select [?a ?w]
+                            :where [["foo" :a ?a ?w]]}))))
+         (is (= #{5 6} (->> (q @a query) (apply concat) set)))
+         (is (empty? (q @b query))))))))
+
 (deftest ^:async simplest-watcher
   (let [src (atom (in-memory))
         tgt (atom (in-memory))
