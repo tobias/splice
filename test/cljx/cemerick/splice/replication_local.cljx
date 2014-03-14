@@ -26,13 +26,16 @@
          (let [query (plan {:select [?k ?v ?write]
                             :where [["foo" ?k ?v ?write]]})]
            (is (= (set (q @src query)) (set (q @tgt query)))))
+
+         (let [replicated-write (-> @src meta ::mem/last-write)]
+           (is (:local/replicated (mem/entity-map @tgt replicated-write))))
          
          ; cancel replication
          (>! ctrl true)
 
          (let [last-write (-> @src meta ::mem/last-write)
                bar-query (plan {:select [?c]
-                                      :where [[_ :c ?c]]})]
+                                :where [[_ :c ?c]]})]
            (swap! src s/write [{:c "bar" ::s/e "foo"}])
            (is (= [["bar"]] (q @src bar-query)))
            (<! (async/timeout 500))

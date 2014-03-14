@@ -166,7 +166,10 @@ a map of operation metadata, first converting it to tuples with `as-tuples`."
 (defn- replicated-write-meta
   [write-eid]
   (let [time (now)]
-    (->> [{::e write-eid :clock/wall-repl time}
+    ; TODO :local/replicated-from would be more useful, and still provide the
+    ; backreference from the replication meta write to the replicated write;
+    ; `replicated-write` will need to accept e.g. the id of the source site
+    (->> [{::e write-eid :local/replicated true}
           {::e (peid 'write1) :clock/wall time}]
          (mapcat as-tuples)
          (add-write-tag (peid 'write1)))))
@@ -201,5 +204,4 @@ that don't have one already."
   (scan space [:write :e :a :v :remove-write]
     (apply tuple (repeat 5 index-bottom))
     (apply tuple (repeat 5 index-top))))
-
 
