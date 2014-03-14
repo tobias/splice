@@ -75,28 +75,20 @@
        (assert (number? last-write-num) "Could not find last write number in initial set of tuples for in-memory splice")
        (MemSpace. site-id last-write-num {} indexes))))
 
-;; new write ++
-;; new write with metadata ++
-;; replicated write (implies additional new write w/ repl metadata ++)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+(defn entity-map
+  "Returns a map containing all entries of the named entity, a
+:cemerick.splice/e slot containing [entity-id], and metadata indicating the last
+write on [space] at the time of the entity lookup."
+  [space entity-id]
+  (reduce
+    (fn [e {:keys [a v]}]
+      (if-let [entry (find e a)]
+        (assoc e a (if (set? (val entry))
+                     (conj (val entry) v)
+                     #{v}))
+        (assoc e a v)))
+    (with-meta {::e entity-id} (select-keys (meta space) [::s/last-write]))
+    (apply concat (q/q space (p/plan {:select [?t]
+                         :args [?eid]
+                         :where [[?eid _ _ _ :as ?t]]})
+       entity-id))))
