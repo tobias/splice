@@ -220,9 +220,5 @@
   (let [;query (ensure-planned q)
         args (zipmap (:args q) arg-values)
         matches (query space q #{args})]
-    (->> matches
-         (map (apply juxt (:select q)))
-         ;; TODO we can/should do this statically; fail (or warn) the planning
-         ;; when a key in :select isn't present in :where
-         (remove (partial some nil?)))))
+    (map (apply juxt (:select q)) matches)))
 

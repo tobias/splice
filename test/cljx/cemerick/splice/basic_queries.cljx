@@ -83,7 +83,10 @@
                                                           [?e :b _ ?t]]}
          
          ; unbound select
-         [] {:select [?e ?v] :where [[?e :b 6]]}
+         ; TODO re-enable this once we can distinguish between bound nil values,
+         ; and unbound variables; the former are OK, the latter are _at least_ a
+         ; plan-time warning, and maybe a hard failure
+         ; [] {:select [?e ?v] :where [[?e :b 6]]}
          
          ; disjunction
          [[(identity "x")] [(identity "y")]] {:select [?e]
