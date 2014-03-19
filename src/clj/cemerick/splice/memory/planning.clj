@@ -193,11 +193,15 @@ well as expression clauses."
       ; the only reason we're requiring a fully-specified tuple here is to avoid
       ; getting the ':as' and tuple binding name mixed up in the matching
       (let [whole-tuple-binding (match/match [clause]
-                                      [[_ _ _ _ ':as whole-tuple-binding]]
-                                      whole-tuple-binding
-                                      :else nil)
+                                  ; no pleasant way to check for suffix in match AFAIK
+                                  [[_ _ _ _ ':as whole-tuple-binding]]
+                                  whole-tuple-binding
+                                  ; bound remove-write slot
+                                  [[_ _ _ _ _ ':as whole-tuple-binding]]
+                                  whole-tuple-binding
+                                  :else nil)
             [clause bound-clause] (if whole-tuple-binding
-                                    (map #(subvec % 0 4) [clause bound-clause])
+                                    (map #(subvec % 0 (- (count %) 2)) [clause bound-clause])
                                     [clause bound-clause])
             _ (when (> (count (filter list? clause)) 1)
                 (throw (IllegalArgumentException. (str "More than one scan expression in clause: "

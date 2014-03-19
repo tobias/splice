@@ -35,7 +35,10 @@
 
 (defn extend-tuple-vector
   [v]
-  (into v (repeat (- 5 (count v)) '_)))
+  (-> v
+    (into (repeat (- 5 (count v)) '_))
+    ; need subvec so that extra binding bits like `:as ?tuple` are trimmed off
+    (subvec 0 5)))
 
 (defn match-tuple
   [match-vector]
@@ -46,7 +49,7 @@
   (sort-by (comp count #(filter '#{_} %) vals match-tuple) clauses))
 
 (defn binding? [x]
-  (and (symbol? x) (->> x name (re-matches #"\?.+"))))
+  (and (symbol? x) (->> x name (re-matches #"\?.+") boolean)))
 
 (defn any? [x] (= '_ x))
 
@@ -74,6 +77,17 @@
 ; TODO eventually compile fns for each match-vector that use
 ; core.match for optimal filtering after index lookup
 
+(defn- apply-removals
+  [matching-tuples]
+  (->> matching-tuples
+    (reduce
+      (fn [[ts rm] t]
+        (if-let [r (:remove-write t)]
+          [ts (conj rm (assoc t :write r :remove-write nil))]
+          [(conj ts t) rm]))
+      [#{} #{}])
+    (#(apply set/difference %))))
+
 ; highlight matching chars
 (defn- match*
   [space index-keys match-spec clause whole-tuple-binding]
@@ -82,19 +96,22 @@
                   (str "Planned index " index-keys " is not available in TupleSet"))))
   (let [match-tuple (match-tuple match-spec)
         slot-bindings (->> (map :binding match-spec)
-                        (map list [:e :a :v :write :write-remove])
+                        (map list [:e :a :v :write :remove-write])
                         (reduce
                           (fn [slot-bindings [slot binding :as pair]]
                             (if (and binding (binding? binding))
                               (conj slot-bindings pair)
                               slot-bindings))
-                          []))]
+                          []))
+        bottom (apply ->Tuple (map :bottom match-spec))
+        top (apply ->Tuple (map :top match-spec))
+        remove-write-bound? (-> match-spec last :binding binding?)]
     (->> (s/scan space
            (or ((s/available-indexes space) index-keys)
              ; TODO probably should just use (first available-indexes)?
              [:e :a :v :write :remove-write])
-           (apply ->Tuple (map :bottom match-spec))
-           (apply ->Tuple (map :top match-spec)))
+           bottom
+           top)
       ; the slowness of this filter is going to be hilarious
       (filter (partial every? (fn [[k v]]
                                 (let [{v2 :binding :keys [bottom top inclusive]} (k match-tuple)]
@@ -110,17 +127,14 @@
                                     (or inclusive
                                       (and (neg? (sedan/compare bottom v))
                                         (neg? (sedan/compare v top)))))))))
-      ;(#(do (prn %) %))
-      ;; TODO need to be able to disable this filtering for when we want to 
-      ;; match / join with :remove-write values
-      (reduce
-        (fn [[ts rm] t]
-          (if-let [r (:remove-write t)]
-            [ts (conj rm (assoc t :write r :remove-write nil))]
-            [(conj ts t) rm]))
-        [#{} #{}])
-      ;(#(do (prn "xxx" slot-bindings %) %))
-      (#(apply set/difference %))
+      ; TODO datomic does this by forcing you to get a different "database" reference
+      ; (Database.history()) to query history.  Current impl here implicitly
+      ; turns on/off application of removal tuples based on the binding (or not)
+      ; of the remove-write slot in scan range clauses.  TBD which is more
+      ; capable / more convenient / more understandable.
+      (#(if remove-write-bound?
+          %
+          (apply-removals %)))
       (map #(reduce (fn [match [tuple-key binding]]
                       (assoc match binding (tuple-key %)))
               (if whole-tuple-binding

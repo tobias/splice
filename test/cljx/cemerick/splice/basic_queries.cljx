@@ -309,27 +309,29 @@
                  [[?el ?attr] (recur ?ch)]]}})))
 
 (deftest deletes
-  (let [s (write (in-memory) [{:a #{"y" :x 1 2} :b #{2 4} ::s/e "x"}])]
+  (let [s (-> (in-memory)
+            (write [{:a #{"y" :x 1 2} ::s/e "x"}])
+            (write [{:b #{2 4} ::s/e "x"}]))]
     (is (= #{[1] [2]} (set-check (q s (plan {:select [?v] :where [[_ :a ?v] (number? ?v)]})))))
-    (let [attr-writes (set-check (q s (plan {:select [?a ?t] :where [[_ ?a 2 ?t]]})))
+    (let [attr-writes (into {} (set-check (q s (plan {:select [?a ?t] :where [[_ ?a 2 ?t]]}))))
           remove-tuples (map
                           (fn [[attr write]] (s/tuple "x" attr 2 nil write))
                           attr-writes)
-          space (s/write s remove-tuples)]
+          space (s/write s remove-tuples)
+          remove-write (-> space meta ::mem/last-write)]
+
       
-      ;; TODO it would be great to be able to write this query and have it work
-      ;; need to eventually figure out how to (automatically?) selectively disable
-      ;; the elimination of tuple matches based on removal tuples
-      #_
-      (pp/pprint [remove-write
-                  (-> attr-writes first second)
-                  (set-check (q s `{:select [?e ?a ?v ?r] :where [[?e ?a ?v ~remove-write ?r]]}))])
-      #_#_
-      (def i (s/index s [:e :a :v :write :remove-write]))
-      (def s s)
-      ;(pp/pprint i)
+      
       (are [result query] (= (set result) (set-check (q space (plan query))))
         #{[1]} {:select [?v] :where [[_ :a ?v] (number? ?v)]}
         #{[4]} {:select [?v] :where [[_ :b ?v] (number? ?v)]}
-        #{} {:select [?a] :where [[_ ?a 2]]}))))
+        #{} {:select [?a] :where [[_ ?a 2]]})
+
+      ;; trawl some history
+      (doseq [[a w rw] (q space (plan {:select [?a ?w ?wr]
+                                             :where [[_ ?a 2 ?w ?wr]]}))]
+        (if rw
+          (do (is (= w remove-write))
+              (is (= rw (attr-writes a))))
+          (is (= w (attr-writes a))))))))
 
