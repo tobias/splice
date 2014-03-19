@@ -9,26 +9,6 @@
   #+cljs (:require-macros [cemerick.splice.memory.planning :refer (plan)]
                           [cljs.core.async.macros :refer (go go-loop)]))
 
-; TODO scanning the index directly is more efficient, but we need to be able to
-; insert arbitrary queries to define the scope of replication. So, for all
-; entities defined by the ACP query, find all writes that affect them >
-; since-write, and then proceed with write eligibility from there
-(defn- local-writes-since
-  [space [site-id _ :as since-write]]
-  (->> (s/scan space [:write :e :a :v :remove-write]
-         (s/tuple s/index-bottom s/index-bottom s/index-bottom since-write)
-         (s/tuple s/index-top s/index-top s/index-top [site-id s/index-top]))
-       (drop-while #(= since-write (:write %)))
-       (partition-by :write)))
-
-(defn- local-writes-since'
-  [space since-write]
-  (q space (plan {:select [?t]
-                  :args [?since-write]
-                  :where [[_ _ _ (< ?since-write ?w) :as ?t]
-                          ]}))
-  )
-
 ; might have gone overboard with the helper fns here...
 (defn- named?
   "Returns true if [x] is 'named', i.e. a keyword or symbol."
@@ -48,6 +28,32 @@
 (defn- local-attribute?
   [x]
   (= "local" (first (attribute-namespace x))))
+
+; TODO scanning the index directly is more efficient, but we need to be able to
+; insert arbitrary queries to define the scope of replication. So, for all
+; entities defined by the ACP query, find all writes that affect them >
+; since-write, and then proceed with write eligibility from there
+(defn- local-writes-since
+  [space [site-id _ :as since-write]]
+  (->> (s/scan space [:write :e :a :v :remove-write]
+         (s/tuple s/index-bottom s/index-bottom s/index-bottom since-write)
+         (s/tuple s/index-top s/index-top s/index-top [site-id s/index-top]))
+       (drop-while #(= since-write (:write %)))
+       (partition-by :write)))
+
+(defn- local-writes-since
+  [space [site-id _ :as since-write]]
+  (->> (q space (plan {:select [?t ?rw]
+                   :args [?since-write ?top-write]
+                   :where [[_ _ _ (< ?since-write ?w ?top-write) ?rw :as ?t]
+                           #_[_ :local/replicated true ?w]]})
+         since-write
+         [site-id s/index-top])
+    (map first)
+    ; TODO will be unnecessary eventually, pending either explicit control of
+    ; result ordering or implicit ordering based on scan range expression(s)
+    (sort-by :write)
+    (partition-by :write)))
 
 (defn- writes-replicated-by
   "Returns a nested seq of tuples, partitioned by :write, that were replicated
@@ -157,4 +163,5 @@ closed.  (This control semantic is deeply flawed, TODO will be revisited.)"
          (def ctrl (peering-replication a b))
          (def ctrl2 (peering-replication b c))
          (swap! a s/write [{::s/e "m" :x 0}])
+         (swap! a s/write [["m" :x 0 nil (-> @a meta ::mem/last-write)]])
          (dotimes [x 20] (swap! a s/write [{::s/e "m" :x x}])))

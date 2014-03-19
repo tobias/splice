@@ -24,8 +24,7 @@
   depend upon bindings established in other clauses."
   [x]
   (or (predicate-clause? x)
-      (function-clause? x)
-      (scan-range-clause? x))) 
+      (function-clause? x))) 
 
 (defn- pick-index
   [index-keys bound-clause original-clause]

@@ -75,6 +75,23 @@
          (is (= #{5 6} (->> (q @a query) (apply concat) set)))
          (is (empty? (q @b query))))))))
 
+(deftest ^:async replicate-removals
+  (let [a (atom (in-memory))
+        b (atom (in-memory))
+        ctrl (rep/peering-replication a b)
+        query (plan {:select [?k ?v]
+                     :where [["foo" ?k ?v]]})]
+    (swap! a s/write [{:a 5 ::s/e "foo"}])
+    (is (= [[:a 5]] (q @a query)))
+
+    (block-or-done
+      (go (<! (async/timeout 500))
+        (is (= [[:a 5]] (q @a query)))
+        (swap! a s/write [["foo" :a 5 nil (-> @a meta ::mem/last-write)]])
+        (is (= [] (q @a query)))
+        (<! (async/timeout 500))
+        (is (= [] (q @b query)))))))
+
 (deftest ^:async simplest-watcher
   (let [src (atom (in-memory))
         tgt (atom (in-memory))
