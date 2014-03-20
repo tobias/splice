@@ -22,6 +22,8 @@
 (defprotocol AsTuples
   (as-tuples [x]))
 
+; TODO any use of expando slots in tuples cause them to index improperly. This
+; _should not happen_.
 ; TODO should `e` be `eid`? It's not actually the _e_, it's an identifier.
 (defrecord Tuple [e a v write remove-write]
   AsTuples

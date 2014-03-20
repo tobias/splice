@@ -109,3 +109,50 @@
                    (async/put! complete true))))
     (block-or-done
      (go (is (first (alts! [complete (async/timeout 5000)])))))))
+
+; ensures that a :replicated matching-write-channel delivers all writes
+; replicated to the watched splice, including removals, but not local writes,
+; and in the same order as written upstream
+(deftest ^:async replicated-change-watcher
+  (let [a (atom (in-memory))
+        b (atom (in-memory))
+        ctrl (rep/peering-replication a b)
+        replicated-change-ctrl (async/chan)
+        replicated-changes-ch (rep/matching-write-channel b nil replicated-change-ctrl :replicated)]
+    (go
+      (swap! a s/write [["e" :a 5]])
+      (swap! a s/write [["e" :a 6]])
+      (let [six-write (-> @a meta ::mem/last-write)]
+        
+        (swap! a s/write [["e" :a 7]])
+        (swap! a s/write [["e" :a 7 nil (-> @a meta ::mem/last-write)]])
+
+        (swap! b s/write [["e" :a 5]])
+        (swap! b s/write [["e" :a 6 nil six-write]])
+
+        (swap! a s/write [["e" :a :done]])
+
+        (block-or-done
+          (let [replicated-data-tuples (async/map< (fn [tuples]
+                                                     (->> tuples
+                                                       (remove (comp #{:clock/wall} :a))
+                                                       first
+                                                       (#(if (:remove-write %)
+                                                           ((juxt :e :a :v :remove-write) %)
+                                                           ((juxt :e :a :v) %)))))
+                                         replicated-changes-ch)
+                observed-changes (atom [])]
+            ; _very_ unhappy with this approach to verifying the contents of a channel
+            ; TODO perhaps some async assertion macro is called for
+            (go
+              (loop []
+                (when-let [v (first (alts! [replicated-data-tuples (async/timeout 500)]))]
+                  (>! replicated-change-ctrl true)
+                  (swap! observed-changes conj v)
+                  (recur)))
+              (is (= [["e" :a 5]
+                      ["e" :a 6]
+                      ["e" :a 7]
+                      ["e" :a 7 (update-in six-write [1] inc)]
+                      ["e" :a :done]]
+                    @observed-changes)))))))))
