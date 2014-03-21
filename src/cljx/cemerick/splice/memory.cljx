@@ -75,20 +75,37 @@
        (assert (number? last-write-num) "Could not find last write number in initial set of tuples for in-memory splice")
        (MemSpace. site-id last-write-num {} indexes))))
 
+(defn tuples->graph
+  "Given a collection of [tuples], returns the graph they represent: a map
+containing those tuples' entities as values, keyed by entity id."
+  [tuples]
+  (reduce
+    ; TODO just ignoring removals for now :-/
+    ; We should either account for removals within the scope of the provided
+    ; tuples, or change entity values to include write and remove-write tags
+    (fn [graph {:keys [e a v]}]
+      (assoc graph e
+             (let [ent (graph e)]
+               (assoc ent a
+                      (if-let [[_ v'] (find ent a)]
+                        (if (set? v')
+                          (conj v' v)
+                          v)
+                        v)))))
+    {}
+    tuples))
+
 (defn entity-map
   "Returns a map containing all entries of the named entity, a
 :cemerick.splice/e slot containing [entity-id], and metadata indicating the last
 write on [space] at the time of the entity lookup."
   [space entity-id]
-  (reduce
-    (fn [e {:keys [a v]}]
-      (if-let [entry (find e a)]
-        (assoc e a (if (set? (val entry))
-                     (conj (val entry) v)
-                     #{v}))
-        (assoc e a v)))
-    (with-meta {::e entity-id} (select-keys (meta space) [::s/last-write]))
-    (apply concat (q/q space (p/plan {:select [?t]
-                         :args [?eid]
-                         :where [[?eid _ _ _ :as ?t]]})
-       entity-id))))
+  (-> (->> (q/q space (p/plan {:select [?t]
+                               :args [?eid]
+                               :where [[?eid _ _ _ :as ?t]]})
+             entity-id)
+        (apply concat)
+        tuples->graph)
+    (get entity-id)
+    (assoc ::e entity-id)
+    (with-meta (select-keys (meta space) [::s/last-write]))))
