@@ -147,30 +147,49 @@ closed.  (This control semantic is deeply flawed, TODO will be revisited.)"
     
     write-channel))
 
+(defn replicate-channel
+  "Take writes off of [write-channel] and write them to the local destination.
+Returns a control channel onto which a falsey value can be put in order to halt
+the replication.  When replication is stopped (either via the control channel,
+or because [write-channel] is closed), a {:last-write ...} map will be put on
+the replication control channel, and then closed."
+  [write-channel destination-splice-ref]
+  (let [replication-control (async/chan)]
+    (go-loop [last-write nil]
+      (let [[v from-chan] (alts! [write-channel replication-control])]
+        (if-not (coll? v)
+          ; either a "cancel" signal via the control channel, or the write-channel
+          ; was closed
+          (doto replication-control
+            (>! {:last-write last-write})
+            async/close!)
+          ; TODO checking to see if the replicated write is in dest
+          ; already or not stinks of non-idempotency; only relevant b/c
+          ; of the local write containing replication-time
+          (let [write-eid (:write (first v))]
+            (when-not (seq (q/q @destination-splice-ref(plan {:select [?t]
+                                             :args [?write]
+                                             :where [[?write :clock/wall ?t]]})
+                             write-eid))
+              (swap! destination-splice-ref s/replicated-write v))
+              (recur write-eid)))))
+    replication-control))
+
 (defn peering-replication
   [src dest]
   (let [matching-write-control (async/chan)
         ; TODO find dest site-id, start from most recent in src from that site
         writes (matching-write-channel src nil matching-write-control :all)
-        replication-control (async/chan)]
-    (go-loop [last-write nil]
-      (let [[v from-chan] (alts! [writes replication-control])]
-        (if-not (coll? v)
-          ; either a "cancel" signal via the control channel, or the matching-write-channel
-          ; was closed
-          (>! replication-control {:last-write last-write})
-          ; TODO checking to see if the replicated write is in dest
-          ; already or not stinks of non-idempotency; only relevant b/c
-          ; of the local write containing replication-time
-          (let [write-eid (:write (first v))]
-            (when-not (seq (q/q @dest (plan {:select [?t]
-                                             :args [?write]
-                                             :where [[?write :clock/wall ?t]]})
-                             write-eid))
-              (swap! dest s/replicated-write v))
-              (>! matching-write-control true)
-              (recur write-eid)))))
-    replication-control))
+        writes' (async/chan)
+        ; needed to satisfy matching-write-channel's vaguely irritating control semantics:
+        ; control gets a truthy value after each write delivered, or it bails
+        bridge (go-loop []
+                 ; these _never_ return true, despite the docs; we should let
+                 ; this go block die once writes stop flowing
+                 (>! writes' (<! writes))
+                 (>! matching-write-control true)
+                 (recur))]
+    (replicate-channel writes' dest)))
 
 (comment (def a (atom (mem/in-memory)))
          (def b (atom (mem/in-memory)))
