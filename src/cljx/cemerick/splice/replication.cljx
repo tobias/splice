@@ -167,9 +167,9 @@ the replication control channel, and then closed."
           ; already or not stinks of non-idempotency; only relevant b/c
           ; of the local write containing replication-time
           (let [write-eid (:write (first v))]
-            (when-not (seq (q/q @destination-splice-ref(plan {:select [?t]
-                                             :args [?write]
-                                             :where [[?write :clock/wall ?t]]})
+            (when-not (seq (q/q @destination-splice-ref (plan {:select [?t]
+                                                               :args [?write]
+                                                               :where [[?write :clock/wall ?t]]})
                              write-eid))
               (swap! destination-splice-ref s/replicated-write v))
               (recur write-eid)))))
