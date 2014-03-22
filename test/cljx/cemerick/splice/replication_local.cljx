@@ -92,6 +92,21 @@
         (<! (async/timeout 500))
         (is (= [] (q @b query)))))))
 
+(deftest ^:async replicate-duplicate-values
+  (let [a (atom (in-memory))
+        b (atom (in-memory))
+        ctrl (rep/peering-replication a b)
+        query (plan {:select [?v ?w]
+                     :where [["m" :a ?v ?w]]})]
+    (swap! a s/write [{:a 5 ::s/e "m"}])
+    (swap! a s/write [{:a 5 ::s/e "m"}])
+    (swap! a s/write [{:a 5 ::s/e "m"}])
+    (is (== 3 (count (q @a query))))
+
+    (block-or-done
+      (go (<! (async/timeout 100))
+        (is (== 3 (count (q @b query))))))))
+
 (deftest ^:async simplest-watcher
   (let [src (atom (in-memory))
         tgt (atom (in-memory))
