@@ -100,7 +100,7 @@ containing those tuples' entities as values, keyed by entity id."
 :cemerick.splice/e slot containing [entity-id], and metadata indicating the last
 write on [space] at the time of the entity lookup."
   [space entity-id]
-  (-> (->> (q/q space (p/plan {:select [?t]
+  (some-> (->> (q/q space (p/plan {:select [?t]
                                :args [?eid]
                                :where [[?eid _ _ _ :as ?t]]})
              entity-id)
