@@ -90,7 +90,7 @@ containing those tuples' entities as values, keyed by entity id."
                       (if-let [[_ v'] (find ent a)]
                         (if (set? v')
                           (conj v' v)
-                          v)
+                          #{v v'})
                         v)))))
     {}
     tuples))
@@ -107,5 +107,5 @@ write on [space] at the time of the entity lookup."
         (apply concat)
         tuples->graph)
     (get entity-id)
-    (assoc ::e entity-id)
+    (assoc ::s/e entity-id)
     (with-meta (select-keys (meta space) [::s/last-write]))))
