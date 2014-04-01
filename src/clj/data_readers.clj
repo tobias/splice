@@ -1,1 +1,1 @@
-{entity cemerick.splice.types/entity ref cemerick.splice.types/ref}
+{ref cemerick.splice.types/reference-tagged-reader-fn}
