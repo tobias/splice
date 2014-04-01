@@ -95,7 +95,9 @@ well as expression clauses."
 ; function invocations/expressions.
 (defn- expression-clause
   [clause-bindings clause]
-  (let [code `(~'fn [{:syms ~(vec clause-bindings)}]
+  ; the sort here is to make testing easier; clause-bindings is a set, so its
+  ; seq order is undefined
+  (let [code `(~'fn [{:syms ~(vec (sort clause-bindings))}]
                 ~clause)]
     (with-meta code {:clause (list 'quote clause) :code (list 'quote code)})))
 

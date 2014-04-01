@@ -6,12 +6,12 @@
             #+clj [cemerick.splice.memory.planning :refer (plan)]
             #+clj [clojure.core.async :as async :refer (go go-loop >! <! alts!)]
             #+cljs [cljs.core.async :as async :refer (>! <! alts!)]
-            [cemerick.cljs.test :as t :refer (#+clj block-or-done)])
+            [cemerick.cljs.test :as t :refer (#+clj block-or-done)]
+            #+clj [clojure.test :refer :all])
   #+cljs (:require-macros [cemerick.splice.memory.planning :refer (plan)]
                           [cemerick.cljs.test :refer (deftest is are block-or-done
                                                        run-tests done with-test-ctx)]
-                          [cljs.core.async.macros :refer (go)])
-  #+clj (:use clojure.test))
+                          [cljs.core.async.macros :refer (go)]))
 
 (deftest ^:async simplest
   (let [a (atom (in-memory))

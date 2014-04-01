@@ -5,8 +5,8 @@
   :source-paths ["src/cljx" "src/clj"] ;  "src/cljs"
   :test-paths ["test/cljx" "test/clj" "target/test-classes"] ; "test/cljs" 
   :min-lein-version "2.0.0"
-  :dependencies [[org.clojure/clojure "1.6.0-alpha3"]
-                 [org.clojure/clojurescript "0.0-2156"]
+  :dependencies [[org.clojure/clojure "1.6.0"]
+                 [org.clojure/clojurescript "0.0-2197"]
                  [org.clojure/core.match "0.2.0"]
                  [org.clojure/core.incubator "0.1.1"]
                  [com.cemerick/sedan "0.0.4-SNAPSHOT"]
@@ -40,12 +40,16 @@
                                    ; :source-map "target/testable.js.map"
                                    :libs [""]
                                    :pretty-print true}}]}
-  
+
+  ; coping with https://github.com/emezeske/lein-cljsbuild/issues/303
+  ; offending bits are the replication tests (is assertions getting caught up in `go` transforms)
+  :jvm-opts []
+
   :profiles {:dev {:dependencies [[com.cemerick/double-check "0.5.6-SNAPSHOT"]]
-                   :plugins [[lein-cljsbuild "1.0.0-alpha2"]
+                   :plugins [[lein-cljsbuild "1.0.3"]
                              [com.cemerick/clojurescript.test "0.3.0-SNAPSHOT"]
-                             [com.keminglabs/cljx "0.3.2"]
-                             [com.cemerick/austin "0.1.4-SNAPSHOT"]
+                             [com.keminglabs/cljx "0.3.3-SNAPSHOT"]
+                             [com.cemerick/austin "0.1.5-SNAPSHOT"]
                              [s3-wagon-private "1.1.2"]
                              ]
                    :aliases {"sanity-check" ["with-profile" "sanity-check"

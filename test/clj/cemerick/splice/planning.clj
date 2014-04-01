@@ -14,7 +14,7 @@
 (deftest predicate-expression-compilation
   (let [expr '(> 30 (inc ?x) ?y)
         fn (#'planning/expression-clause (#'planning/clause-bindings expr) expr)]
-    (is (= {:code ''(fn [{:syms [?y ?x]}] (> 30 (inc ?x) ?y))
+    (is (= {:code ''(fn [{:syms [?x ?y]}] (> 30 (inc ?x) ?y))
             :clause `'~expr}
           (meta fn)))
     (is (= false ((eval fn) '{?x 29 ?y 20})))
