@@ -48,16 +48,17 @@
 
 
 (deftest basic-queries
-  (let [s1 (write (in-memory) [{:a 6 :b 12 ::s/e "x"}])
+  (let [s1 (write (in-memory) [{:a 6 :b 12 :c ["j" "k"] ::s/e "x"}])
         s2 (write s1 {:some-meta :p} [{:b 6 ::s/e "y"}])
         space (write s2 {:some-meta true} [{:b "c" ::s/e "y"}])]
+    (def space space)
     (are [result query] (= (set result) (set-check (q space (plan query))))
          [[(identity "x") 6]] {:select [?e ?v]
                              :where [[?e :b 12]
                                      [?e :a ?v]]}
          ; entity-position coercion
-         [[:a] [:b]] {:select [?a]
-                      :where [["x" ?a]]} 
+         [[:a] [:b] [:c]] {:select [?a]
+                           :where [["x" ?a]]} 
          
          [[:a]] {:select [?a]
                  :where [["x" ?a 6]]}
@@ -134,7 +135,11 @@
                          :where [[_ :b ?v]
                                  (number? ?v)
                                  [[_ _ ?k] (range (/ ?v 3) -1 -1)]]}
-         
+         ; ...destructuring existing binding directly w/o fn expr
+         [[["j" "k"] "j" "k"]] {:select [?v ?first ?second]
+                                :where [[_ :c ?v]
+                                        [[?first ?second] ?v]]}
+
          ; whole-tuple selection
          [[(s/tuple "y" :b "c" (-> space meta ::mem/last-write) nil)]
           [(s/tuple "y" :b 6 (-> s2 meta ::mem/last-write) nil)]]

@@ -7,6 +7,8 @@
             [clojure.set :as set]
             [clojure.walk :as walk]))
 
+(def ^:private ^:dynamic *&env*)
+
 (defmulti plan* :planner)
 
 (def ^:private predicate-clause? list?)
@@ -246,14 +248,21 @@ well as expression clauses."
       :subquery ::q/recur
       :args (vec arguments)}
     
-    [[destructuring (fn-expr :guard list?)]]
+    [(:or [(destructuring :guard #(or (map? %) (vector? %))) expr]
+          [(destructuring :guard symbol?) (expr :guard list?)])]
     {:op :function
-     :function (expression-clause (clause-bindings fn-expr)
-                 `(when-let [~destructuring ~fn-expr]
-                    ~(let [bindings (if (symbol? destructuring)
-                                      #{destructuring}
-                                      (clause-bindings destructuring))]
-                       #{(zipmap (map #(list 'quote %) bindings) bindings)})))}
+     :function (expression-clause (clause-bindings expr)
+                 `(when-let [result# ~expr]
+                    (try
+                      (when-let [~destructuring result#]
+                        ~(let [bindings (if (symbol? destructuring)
+                                          #{destructuring}
+                                          (clause-bindings destructuring))]
+                           #{(zipmap (map #(list 'quote %) bindings) bindings)}))
+                      (catch ~(if (:ns *&env*) :default 'Throwable) e#
+                        ; coping with result not being destructurable
+                        ; TODO maybe worth a runtime warning?
+                        ))))}
     
     [[& _]]
     (plan-match args bindings bound-clause clause)
@@ -312,4 +321,5 @@ well as expression clauses."
 
 (defmacro plan
   [query]
-  (quote-symbols (plan* query)))
+  (binding [*&env* &env]
+    (quote-symbols (plan* query))))
