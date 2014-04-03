@@ -45,7 +45,7 @@
   ; offending bits are the replication tests (is assertions getting caught up in `go` transforms)
   :jvm-opts []
 
-  :profiles {:dev {:dependencies [[com.cemerick/double-check "0.5.6-SNAPSHOT"]]
+  :profiles {:dev {:dependencies [[com.cemerick/double-check "0.5.7-SNAPSHOT"]]
                    :plugins [[lein-cljsbuild "1.0.3"]
                              [com.cemerick/clojurescript.test "0.3.0-SNAPSHOT"]
                              [com.keminglabs/cljx "0.3.3-SNAPSHOT"]
