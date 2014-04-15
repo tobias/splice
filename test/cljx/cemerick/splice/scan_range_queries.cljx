@@ -15,7 +15,7 @@
 ; in match clauses?
 ;
 ; #optimization I'd expect the results of this query to be in the order of the
-; #index used in the scan range clause:
+; index used in the scan range clause:
 (comment 
   (def a (atom (mem/in-memory)))
   (dotimes [x 100] (swap! a s/write [{::s/e "m" :x x}]))
