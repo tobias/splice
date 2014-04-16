@@ -26,7 +26,7 @@
                        (into {::s/e "c2"} (po-attrs :children (map str "xyz")))
                        (into {::s/e "c3"}
                          (po-attrs :children ["j" "k" #ref "i1" "l"]))
-                       {::s/e "i1" #po-attr [:children "0"] "data"}])
+                       {::s/e "i1" #po [:children "0"] "data"}])
 
 (defn- po-attrs->string
   [attrs]
@@ -38,5 +38,5 @@
 (deftest dumb
   (is (= "jkl" (po-attrs->string
                  (q @splice (plan {:select [?a ?v]
-                                   :where [["c3" (<= #po-attr [:children 0] ?a) ?v]
+                                   :where [["c3" (<= #po [:children 0] ?a) ?v]
                                            (string? ?v)]}))))))

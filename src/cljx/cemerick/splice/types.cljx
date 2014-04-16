@@ -165,10 +165,10 @@ contains the same referent, but with the new epoch endpoint."
 #+clj
 (do
   (alter-var-root #'cljs.tagged-literals/*cljs-data-readers*
-    assoc 'po-attr po-attr-tagged-reader-fn)
+    assoc 'po po-attr-tagged-reader-fn)
 
   (defmethod print-method POAttribute [poattr ^java.io.Writer w]
-    (.write w "#po-attr ")
+    (.write w "#po ")
     (print-method (poattr-components poattr) w))
   (defmethod print-dup POAttribute [o w]
     (print-method o w))
@@ -187,11 +187,11 @@ contains the same referent, but with the new epoch endpoint."
 
 #+cljs
 (do
-  (cljs.reader/register-tag-parser! 'po-attr po-attr-tagged-reader-fn)
+  (cljs.reader/register-tag-parser! 'po po-attr-tagged-reader-fn)
   (extend-type POAttribute 
     IPrintWithWriter
     (-pr-writer [this w opts]
-      (-write w "#po-attr ")
+      (-write w "#po ")
       (pr-writer (poattr-components this) w opts))))
 
 (defn po-attr?
