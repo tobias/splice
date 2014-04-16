@@ -1,1 +1,1 @@
-{ref cemerick.splice.types/reference-tagged-reader-fn}
+{ref cemerick.splice.types/reference-tagged-reader-fn po-attr cemerick.splice.types/po-attr-tagged-reader-fn}

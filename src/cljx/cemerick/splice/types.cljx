@@ -21,10 +21,6 @@
     @reference
     [@reference (as-of reference)]))
 
-(defn- hash-reference
-  [ref]
-  (inc (hash (reference-components ref))))
-
 (deftype Reference [referent epoch]
   #+clj clojure.lang.IDeref #+cljs IDeref
   (#+clj deref #+cljs -deref [_] referent)
@@ -38,9 +34,11 @@
   #+clj Object
   #+clj
   (toString [this] (pr-str this))
-  #+clj
-  (hashCode [this] (hash-reference this))
-  (equals [this other]
+  #+cljs IHash
+  (#+clj hashCode #+cljs -hash [this]
+    (inc (hash (reference-components this))))
+  #+cljs IEquiv
+  (#+clj equals #+cljs -equiv [this other]
     (and (instance? Reference other)
       (= referent (.-referent other))
       (= epoch (.-epoch other)))))
@@ -83,13 +81,6 @@
 (do
   (cljs.reader/register-tag-parser! 'ref reference-tagged-reader-fn)
   (extend-type Reference
-    IHash
-    (-hash [this] (hash-reference this))
-    IEquiv
-    (-equiv [this other]
-      (and (instance? Reference other)
-        (= (.-referent this) (.-referent other))
-        (= (.-epoch this) (.-epoch other))))
     IPrintWithWriter
     (-pr-writer [this w opts]
       (-write w "#ref ")
@@ -127,3 +118,105 @@ contains the same referent, but with the new epoch endpoint."
     (sedan.impl/encode-sequence [(.-referent x) (.-epoch x)] buffer false))
   (compare* [a b]
     (sedan.impl/default-compare a b)))
+
+;;; ********************* partially-ordered attribute "names"
+
+
+; TODO would like to deref to get the attr, but the rank is hardly "just"
+; metadata like reference epochs (mostly?) are
+(defprotocol IPOAttribute
+  (attr [x])
+  (rank [x]))
+
+(defn- poattr-components
+  [poattr]
+  [(attr poattr) (rank poattr)]) 
+
+(deftype POAttribute [attr rank]
+  IPOAttribute
+  (attr [_] attr)
+  (rank [_] rank)
+  #+clj Comparable #+cljs IComparable
+  (#+clj compareTo #+cljs -compare [_ other]
+    (!0 (sedan.impl/default-compare attr (.-attr other))
+      (sedan.impl/default-compare rank (.-rank other))))
+  #+clj Object
+  #+clj
+  (toString [this] (pr-str this))
+  #+cljs IHash
+  (#+clj hashCode #+cljs -hash [this]
+    (inc (hash (poattr-components this))))
+  #+cljs IEquiv
+  (#+clj equals #+cljs -equiv [this other]
+    (and (instance? POAttribute other)
+      (= attr (.-attr other))
+      (= rank (.-rank other)))))
+
+(declare po-attr)
+
+(defn- po-attr-tagged-reader-fn
+  [x]
+  (assert (and (vector? x) (== 2 (count x)))
+    "po-attr must be represented by a vector of [attribute, rank]")
+  (apply po-attr x))
+
+; TODO could print rank strings (if they _are_ strings) in hex to make REPL debugging easier
+
+#+clj
+(do
+  (alter-var-root #'cljs.tagged-literals/*cljs-data-readers*
+    assoc 'po-attr po-attr-tagged-reader-fn)
+
+  (defmethod print-method POAttribute [poattr ^java.io.Writer w]
+    (.write w "#po-attr ")
+    (print-method (poattr-components poattr) w))
+  (defmethod print-dup POAttribute [o w]
+    (print-method o w))
+  (#'clojure.pprint/use-method
+    clojure.pprint/simple-dispatch
+    POAttribute 
+    #'clojure.pprint/pprint-simple-default)
+
+  (defmethod cljsc/emit-constant POAttribute 
+    [^POAttribute po-attr]
+    (cljsc/emits "cemerick.splice.types.po-attr(")
+    (cljsc/emit-constant (.-attr po-attr))
+    (cljsc/emits ",")
+    (cljsc/emit-constant (.-rank po-attr))
+    (cljsc/emits ")")))
+
+#+cljs
+(do
+  (cljs.reader/register-tag-parser! 'po-attr po-attr-tagged-reader-fn)
+  (extend-type POAttribute 
+    IPrintWithWriter
+    (-pr-writer [this w opts]
+      (-write w "#po-attr ")
+      (pr-writer (poattr-components this) w opts))))
+
+(defn po-attr?
+  "Returns true iff [x] is a partially-ordered attribute."
+  [x]
+  (instance? POAttribute x))
+
+(defn po-attr
+  "Creates a new partially-ordered attribute given a base [attribute] (which may
+  be any splice-compatible value _other than_ a po-attr), and a [rank] value
+  indicating the ordering of that attribute.
+
+When called with a POAttribute, it will be returned unmodified.  When
+called with a POAttribute and a new rank value, will return a POAttribute that
+contains the same base attribute, but with the new rank."
+  [attr rank]
+  (if (instance? POAttribute attr)
+    (POAttribute. (.-attr attr) rank)
+    (POAttribute. attr rank)))
+
+(define-partition! 0x51 :po-attr POAttribute 
+  (fn decode-po-attr [tag ^String s]
+    (sedan.impl/decode-sequence po-attr (sedan.impl/without-tag s) false))
+  (encode* [^POAttribute x buffer]
+    (sedan.impl/encode-sequence [(.-attr x) (.-rank x)] buffer false))
+  (compare* [a b]
+    (sedan.impl/default-compare a b)))
+
