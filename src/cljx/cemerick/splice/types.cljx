@@ -179,7 +179,7 @@ contains the same referent, but with the new epoch endpoint."
 
   (defmethod cljsc/emit-constant POAttribute 
     [^POAttribute po-attr]
-    (cljsc/emits "cemerick.splice.types.po-attr(")
+    (cljsc/emits "cemerick.splice.types.po_attr(")
     (cljsc/emit-constant (.-attr po-attr))
     (cljsc/emits ",")
     (cljsc/emit-constant (.-rank po-attr))
