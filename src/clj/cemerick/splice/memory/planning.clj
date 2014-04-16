@@ -14,7 +14,9 @@
 (def ^:private predicate-clause? list?)
 
 (defn- function-clause? [x]
-  (and (vector? x) (list? (second x))))
+  (and (vector? x)
+    (list? (second x))
+    (== 2 (count x))))
 
 (defn- scan-range-clause?
   [x]
