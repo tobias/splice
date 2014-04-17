@@ -11,6 +11,9 @@
   #+cljs (:require-macros [cemerick.splice.memory.planning :refer (plan)]
                           [cemerick.cljs.test :refer (deftest is are)]))
 
+;; TODO want to be able to specify component of scan range expression without binding anything, e.g.
+;; (>= 5) should match values >= 5, but currently requires (>= ?x 5)
+
 ; TODO how to characterize order? Implicit from the different range expressions
 ; in match clauses?
 ;

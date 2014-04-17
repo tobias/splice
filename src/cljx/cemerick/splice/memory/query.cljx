@@ -2,6 +2,7 @@
   #+clj (:require [cemerick.splice.memory.indexing :refer (index-comparator)])
   #+cljs (:require-macros [cemerick.splice.memory.indexing :refer (index-comparator)])
   (:require [cemerick.splice :as s :refer (->Tuple)]
+            [cemerick.splice.types :as types]
             [cemerick.sedan :as sedan] ; used by index-comparator
             [clojure.set :as set]))
 
@@ -32,6 +33,9 @@
 ; planner while it's exposed as a macro
 (def bottom-symbol '⊥)
 (def top-symbol '⊤)
+
+#+clj
+(defn- echo [x] (clojure.pprint/pprint x) x)
 
 (defn extend-tuple-vector
   [v]
@@ -149,7 +153,11 @@
           (if-let [[_ bval] (find rel (:binding spec))]
             (assoc spec :bottom bval :top bval)
             (reduce
-              (fn [spec slot] (update-in spec [slot] #(rel % %)))
+              (fn [spec slot] (update-in spec [slot]
+                                #(clojure.walk/postwalk
+                                   (fn [x]
+                                     (rel x x))
+                                   %)))
               spec
               [:bottom :binding :top])))
     match-spec))
@@ -205,9 +213,6 @@
                     set
                     (set/join results))
                   results))))
-
-#+clj
-(defn- echo [x] (clojure.pprint/pprint x) x)
 
 (defn query
   [space q results]

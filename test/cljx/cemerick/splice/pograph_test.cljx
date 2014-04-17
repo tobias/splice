@@ -20,13 +20,22 @@
   (for [[idx x] (map-indexed vector values)]
     [(types/po-attr base-attr idx) x]))
 
-(swap! splice s/write [(into {::s/e "m"}
+(swap! splice s/write [{::s/e "p" [0] "q"}
+                       (into {::s/e "m"}
                          (po-attrs :children (map types/reference ["c1" "c2" "c3"])))
                        (into {::s/e "c1"} (po-attrs :children (map str "abc")))
                        (into {::s/e "c2"} (po-attrs :children (map str "xyz")))
                        (into {::s/e "c3"}
                          (po-attrs :children ["j" "k" #ref "i1" "l"]))
                        {::s/e "i1" #po [:children "0"] "data"}])
+
+
+(deftest bind-walkables
+  (is (= [["q"]] (q @splice (plan {:select [?v]
+                                 :args [?i]
+                                 :where [["p" [?i] ?v]]})
+                 0)))
+  )
 
 (defn- po-attrs->string
   [attrs]
