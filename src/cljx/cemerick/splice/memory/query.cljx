@@ -35,8 +35,10 @@
 (def bottom-symbol '⊥)
 (def top-symbol '⊤)
 
-#+clj
-(defn- echo [x] (clojure.pprint/pprint x) x)
+(defn- echo [x]
+  #+cljs (println x)
+  #+clj (clojure.pprint/pprint x)
+  x)
 
 (defn extend-tuple-vector
   [v]
@@ -196,9 +198,13 @@ well as named bindings."
 
   cemerick.splice.types.Reference
   (-matches? [qv v]
-    (and (types/reference? v)
-      (-matches? @qv @v)
-      (-matches? (types/as-of qv) (types/as-of v))))
+    (or
+      ; supporting binding references to :e, :write, :remove-write
+      ;; TODO this is kind of a hack, any better approach?
+      (-matches? @qv v) 
+      (and (types/reference? v)
+        (-matches? @qv @v)
+        (-matches? (types/as-of qv) (types/as-of v)))))
   cemerick.splice.types.POAttribute
  (-matches? [qv v]
     (and (types/po-attr? v)
@@ -284,11 +290,24 @@ well as named bindings."
   (walkt [coll f]
     (types/po-attr (f (.-attr coll)) (f (.-rank coll)))))
 
+(defprotocol IBindable
+  (-bind-to [v destination-slot]))
+
+(extend-protocol IBindable
+  #+cljs default
+  #+clj Object
+  (-bind-to [v slot] v)
+  cemerick.splice.types.Reference
+  (-bind-to [v slot]
+    (case slot
+      (:e :write :remove-write) @v
+      v)))
+
 (defn- fix-match-bindings
   [rel match-spec]
-  (mapv (fn [{:keys [binding] :as spec}]
+  (mapv (fn [{:keys [binding] :as spec} slot]
           (let [grounded-binding (walk/postwalk
-                                   #(rel % %)
+                                   #(-bind-to (rel % %) slot)
                                    binding)]
             (if (not= binding grounded-binding)
               (assoc spec :bottom grounded-binding :top grounded-binding)
@@ -297,20 +316,53 @@ well as named bindings."
                   (update-in spec [slot]
                     #(walk/postwalk
                        (fn [x]
-                         (rel x x))
+                         (-bind-to (rel x x) slot))
                        %)))
                 spec
                 [:bottom :top]))))
-    match-spec))
+    match-spec
+    [:e :a :v :write :remove-write]))
+
+; this alternative join operation exists for two reasons:
+; (a) we need to control the equivalence test used when checking same-keyed
+; values in relations, in order to ensure (= #ref "foo" "foo") (only when
+; joining into :e, :write, and :write-remove, which is ensured by the impl of
+; IBindable (TODO useless shitty name) for References.
+; (b) clojure.set/join only works on sets; we want to be able to (eventually)
+; provide query results as lazy seqs or channels delivering (distinct) relations
+(defn- join*
+  [x y]
+  (cond
+    (= x y) x
+    (and (types/reference? x) (= @x y)) x
+    (and (types/reference? y) (= @y x)) y
+    :default (reduced nil)))
+
+(defn join
+  [xs ys]
+  (->> (for [x xs
+         y ys]
+     (reduce
+       (fn [n [k v]]
+         (if-let [[_ v'] (find n k)]
+           (let [x (join* v v')]
+             (if (reduced? x)
+               x
+               (assoc n k x)))
+           (assoc n k v)))
+       x
+       y))
+    (remove nil?)
+    set))
 
 (defn match
   [space previous-matches {:keys [index clause match-spec whole-tuple-binding]}]
   (->> (if (empty? previous-matches) #{{}} previous-matches)
-    (map #(let [#_#_#_#__ (echo match-spec)
-                _ (echo (fix-match-bindings (merge %
+    (map #(let [#_#__ (when (seq previous-matches)
+                    (println (fix-match-bindings (merge %
                                                   {bottom-symbol s/index-bottom
                                                    top-symbol s/index-top})
-                              match-spec))
+                              match-spec)))
                 matches (match* space index
                           (fix-match-bindings (merge %
                                                 {bottom-symbol s/index-bottom
@@ -318,7 +370,7 @@ well as named bindings."
                             match-spec)
                           clause whole-tuple-binding)]
             (if (seq matches)
-              (set/join previous-matches matches)
+              (join previous-matches matches)
               #{})))
     (apply set/union)))
 

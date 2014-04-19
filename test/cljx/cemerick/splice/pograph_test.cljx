@@ -75,3 +75,12 @@
         (set (q @splice (plan {:select [?rank ?ch]
                                :where [["c2" #po [:children ?rank] ?ch]]}))))))
 
+(deftest unbox-references-when-matching
+  (is (= (into #{#ref "i1"} (map str "abcxyzjkl"))
+        (set (mapcat identity (q @splice (plan {:select [?v]
+                                                :where [["m" _ ?ch]
+                                                        [?ch _ ?v]]})))))))
+
+
+
+
