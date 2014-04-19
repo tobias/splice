@@ -1,5 +1,6 @@
 (ns cemerick.splice.planning
-  (:require [cemerick.splice.memory.planning :as planning])
+  (:require [cemerick.splice.memory.planning :as planning]
+            [cemerick.splice.memory.query :as q])
   (:use clojure.test))
 
 (deftest default-planner
@@ -13,7 +14,7 @@
 
 (deftest predicate-expression-compilation
   (let [expr '(> 30 (inc ?x) ?y)
-        fn (#'planning/expression-clause (#'planning/clause-bindings expr) expr)]
+        fn (#'planning/expression-clause (q/clause-bindings expr) expr)]
     (is (= {:code ''(fn [{:syms [?x ?y]}] (> 30 (inc ?x) ?y))
             :clause `'~expr}
           (meta fn)))

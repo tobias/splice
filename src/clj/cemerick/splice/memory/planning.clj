@@ -1,6 +1,7 @@
 (ns cemerick.splice.memory.planning
   (:require [cemerick.cljs.macro :refer (defportable *cljs* *clj*)]
             [cemerick.splice :as s]
+            [cemerick.splice.types :as types]
             [cemerick.splice.memory.query :as q]
             [clojure.core.match :as match]
             [clojure.math.combinatorics :refer (cartesian-product)]
@@ -11,30 +12,10 @@
 
 (defmulti plan* :planner)
 
-(def ^:private predicate-clause? list?)
-
-(defn- function-clause? [x]
-  (and (vector? x)
-    (list? (second x))
-    (== 2 (count x))))
-
-(defn- scan-range-clause?
-  [x]
-  (and (vector? x)
-       (boolean (some list? x))))
-
-(defn- expression-clause?
-  "Returns true for any clause that is or contains an \"expression\", which can
-  depend upon bindings established in other clauses."
-  [x]
-  (or (predicate-clause? x)
-      (function-clause? x))) 
-
 (defn- pick-index
   [index-keys bound-clause original-clause]
-  (let [bound-keys (set (for [[k v] (q/match-tuple bound-clause)
-                              :when (and (not (= '_ v))
-                                      (not (q/binding? v)))]
+  (let [bound-keys (set (for [[k v] (q/match-tuple (mapv q/clause-variables bound-clause))
+                              :when (not v)]
                           k))
         [prefix best-index] (->> index-keys
                               (map #(vector (count (take-while bound-keys %)) %))
@@ -44,19 +25,6 @@
       (binding [*out* *err*]
         (println "WARNING: No index available for clause" original-clause)))))
 
-(defn- clause-bindings
-  "Same as `free-variables`, but excludes _ and works with match vectors as
-well as expression clauses."
-  [clause]
-  ; a little hokey about this function clause handling here
-  (let [clause (if (function-clause? clause)
-                 (second clause)
-                 clause)]
-    (->> (tree-seq coll? seq clause)
-      (remove coll?)
-      (filter q/binding?)
-      set)))
-
 ; this is probably outdated; something like this will be necessary to do more sophisticated
 ; query planning
 (defn- clause-graph
@@ -65,7 +33,7 @@ well as expression clauses."
   (reduce
     (partial merge-with into)
     (for [[c c2] (q/pairs clauses)
-          :let [[b b2] (map clause-bindings [c c2])
+          :let [[b b2] (map q/clause-bindings [c c2])
                 overlap? (seq (set/intersection b b2))]]
       {:nodes #{c c2}
        :neighbors (cond
@@ -84,13 +52,13 @@ well as expression clauses."
   (reverse
     (reduce
       (fn [clauses expr]
-        (let [expr-bindings (clause-bindings expr)
+        (let [expr-bindings (q/clause-bindings expr)
               [after before] (split-with
-                               #(empty? (set/intersection expr-bindings (clause-bindings %)))
+                               #(empty? (set/intersection expr-bindings (q/clause-bindings %)))
                                clauses)]
           (concat after [expr] before)))
-      (reverse (remove expression-clause? clauses))
-      (filter expression-clause? clauses))))
+      (reverse (remove q/expression-clause? clauses))
+      (filter q/expression-clause? clauses))))
 
 ; TODO this name is a misnomer; scan range clauses are also "expression" clauses
 ; insofar as they have binding dependencies, but they are not predicates or
@@ -109,6 +77,33 @@ well as expression clauses."
     (apply cartesian-product)
     (map (comp vector vec))
     set))
+
+(defprotocol IScanRangeValue
+  (scan-range-anchor [x bottom]))
+
+(extend-protocol IScanRangeValue
+  Object
+  (scan-range-anchor [x bottom] x)
+
+  clojure.lang.Symbol
+  (scan-range-anchor [x bottom]
+    (if (q/variable? x) bottom x))
+
+  clojure.lang.IPersistentVector
+  (scan-range-anchor [x bottom]
+    (mapv #(scan-range-anchor % bottom) x))
+
+  cemerick.splice.types.Reference
+  (scan-range-anchor [x bottom]
+    (types/reference
+      (scan-range-anchor (.-referent x) bottom)
+      (scan-range-anchor (.-epoch x) bottom)))
+
+  cemerick.splice.types.POAttribute
+  (scan-range-anchor [x bottom]
+    (types/po-attr
+      (scan-range-anchor (.-attr x) bottom)
+      (scan-range-anchor (.-rank x) bottom))))
 
 ; TODO need to treat match clauses that contain scan range expressions as
 ; predicate clauses w.r.t. clause reordering
@@ -173,8 +168,10 @@ well as expression clauses."
       (throw (IllegalArgumentException.
                (str "Invalid scan range expression: " expr))))
 
-    (x :guard q/variable?)
-    (list '<= q/bottom-symbol x q/top-symbol)
+    (x :guard q/clause-variables)
+    (list '<= (scan-range-anchor x q/bottom-symbol)
+      x
+      (scan-range-anchor x q/top-symbol))
 
     :else
     (list '<= expr expr expr)))
@@ -237,7 +234,7 @@ well as expression clauses."
                            clause))))}
     
     [(_ :guard list?)]
-    {:predicate (expression-clause (clause-bindings clause) clause)
+    {:predicate (expression-clause (q/clause-bindings clause) clause)
      :op :predicate}
     
     [[destructuring (['q subquery-name & arguments] :seq :guard list?)]]
@@ -255,13 +252,13 @@ well as expression clauses."
     [(:or [(destructuring :guard #(or (map? %) (vector? %))) expr]
           [(destructuring :guard symbol?) (expr :guard list?)])]
     {:op :function
-     :function (expression-clause (clause-bindings expr)
+     :function (expression-clause (q/clause-bindings expr)
                  `(when-let [result# ~expr]
                     (try
                       (when-let [~destructuring result#]
                         ~(let [bindings (if (symbol? destructuring)
                                           #{destructuring}
-                                          (clause-bindings destructuring))]
+                                          (q/clause-bindings destructuring))]
                            #{(zipmap (map #(list 'quote %) bindings) bindings)}))
                       (catch ~(if (:ns *&env*) :default 'Throwable) e#
                         ; coping with result not being destructurable
@@ -279,7 +276,7 @@ well as expression clauses."
         bound-clause (mapv #(if (or (get prev-bound %) (some #{%} args))
                               :bound
                               %) clause)
-        bindings (clause-bindings clause)
+        bindings (q/clause-bindings clause)
         planned-clause (merge
                          {:clause clause
                           :bindings bindings}

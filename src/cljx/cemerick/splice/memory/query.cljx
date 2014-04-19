@@ -4,6 +4,7 @@
   (:require [cemerick.splice :as s :refer (->Tuple)]
             [cemerick.splice.types :as types]
             [cemerick.sedan :as sedan] ; used by index-comparator
+            [cemerick.splice.walk :as walk]
             [clojure.set :as set]))
 
 ;; as long as each index is complete, we can just keep covering indexes as
@@ -59,9 +60,70 @@
 
 (defn variable? [x] (or (binding? x) (any? x)))
 
-(defn free-variables
+(def ^:private predicate-clause? list?)
+
+(defn- function-clause? [x]
+  (and (vector? x)
+    (list? (second x))
+    (== 2 (count x))))
+
+(defn- scan-range-clause?
+  [x]
+  (and (vector? x)
+       (boolean (some list? x))))
+
+(defn expression-clause?
+  "Returns true for any clause that is or contains an \"expression\", which can
+  depend upon bindings established in other clauses."
+  [x]
+  (or (predicate-clause? x)
+      (function-clause? x))) 
+
+(defprotocol IClauseTree
+  (-branch? [x])
+  (-children [x]))
+
+(extend-protocol IClauseTree
+  #+cljs default
+  #+clj Object
+  (-branch? [x] (coll? x))
+  ; children is never called if branch? returns false, so defining it like so
+  ; for non-collections is okay
+  (-children [x] (seq x))
+  cemerick.splice.types.Reference
+  (-branch? [x] true)
+  (-children [x]
+    (if (types/unbounded? x)
+      [@x]
+      [@x (types/as-of x)]))
+  cemerick.splice.types.POAttribute
+  (-branch? [x] true)
+  (-children [x] [(.-attr x) (.-rank x)]))
+
+(defn clause-seq
+  "Returns a seq of all components of [clause], as per `tree-seq`, but with support for splice types."
   [clause]
-  (set (filter variable? (map val (match-tuple clause)))))
+  (tree-seq -branch? -children clause))
+
+(defn clause-variables
+  "Returns a set of the variables present in the given clause; includes _ as
+well as named bindings."
+  [clause]
+  ; a little hokey about this function clause handling here
+  (let [clause (if (function-clause? clause)
+                 (second clause)
+                 clause)
+        variables (->> (clause-seq clause)
+                    (remove coll?)
+                    (filter variable?)
+                    seq)]
+    (when variables (set variables))))
+
+(defn clause-bindings
+  "Same as `free-variables`, but excludes _."
+  [clause]
+  (when-let [bindings (seq (filter binding? (clause-variables clause)))]
+    (set bindings)))
 
 (defn pairs
   [xs]
@@ -77,6 +139,72 @@
     (take-while seq)
     (mapcat #(when-let [x (and (next %) (first %))]
                (map (fn [y] [x y]) (rest %))))))
+
+
+
+(defprotocol IDestructurable
+  (-destructure [binding-pattern value]))
+
+(extend-protocol IDestructurable
+  #+cljs default
+  #+clj Object
+  (-destructure [b v]
+    ; only being able to extend protocols to concrete types in CLJS is a big PITA
+    (if (and (vector? b) (vector? v))
+      (apply merge (map -destructure b v))
+      {}))
+
+  #+cljs cljs.core.Symbol
+  #+clj clojure.lang.Symbol
+  (-destructure [b v]
+    (if (binding? b)
+      {b v}
+      {}))
+
+  cemerick.splice.types.Reference
+  (-destructure [b v]
+    (when (types/reference? v)
+      (merge (-destructure @b @v)
+        (-destructure (types/as-of b) (types/as-of v)))))
+
+  cemerick.splice.types.POAttribute
+  (-destructure [b v]
+    (when (types/po-attr? v)
+      (merge (-destructure (.-attr b) (.-attr v))
+        (-destructure (.-rank b) (.-rank v))))))
+
+(defprotocol IMatch
+  (-matches? [query-value value]
+    "Returns true if the actual value [v] matches the query value [qv]."))
+
+(extend-protocol IMatch
+  nil
+  (-matches? [qv v] true)
+  #+cljs default
+  #+clj Object
+  (-matches? [qv v] (= qv v))
+  #+clj clojure.lang.Symbol
+  #+cljs cljs.core.Symbol
+  (-matches? [qv v]
+    (or (variable? qv) (= qv v)))
+  #+clj clojure.lang.IPersistentVector
+  #+cljs cljs.core.PersistentVector
+  (-matches? [qv v]
+    (and (vector? v)
+      (== (count qv) (count v))
+      (every? identity (map -matches? qv v))))
+
+  cemerick.splice.types.Reference
+  (-matches? [qv v]
+    (and (types/reference? v)
+      (-matches? @qv @v)
+      (-matches? (types/as-of qv) (types/as-of v))))
+  cemerick.splice.types.POAttribute
+ (-matches? [qv v]
+    (and (types/po-attr? v)
+      (-matches? (.-attr qv) (.-attr v))
+      (-matches? (.-rank qv) (.-rank v)))))
+
 
 ; TODO eventually compile fns for each match-vector that use
 ; core.match for optimal filtering after index lookup
@@ -103,7 +231,7 @@
                         (map list [:e :a :v :write :remove-write])
                         (reduce
                           (fn [slot-bindings [slot binding :as pair]]
-                            (if (and binding (binding? binding))
+                            (if (and binding (clause-bindings binding))
                               (conj slot-bindings pair)
                               slot-bindings))
                           []))
@@ -118,8 +246,8 @@
            top)
       ; the slowness of this filter is going to be hilarious
       (filter (partial every? (fn [[k v]]
-                                (let [{v2 :binding :keys [bottom top inclusive]} (k match-tuple)]
-                                  (and (or (nil? v2) (variable? v2) (= v v2))
+                                (let [{qv :binding :keys [bottom top inclusive]} (k match-tuple)]
+                                  (and (-matches? qv v)
                                     ; this is the only way to implement
                                     ; bounds-exclusive scans when the match
                                     ; clause has grounded values in it, e.g. [_
@@ -136,36 +264,54 @@
       ; turns on/off application of removal tuples based on the binding (or not)
       ; of the remove-write slot in scan range clauses.  TBD which is more
       ; capable / more convenient / more understandable.
+      ; TODO should probably apply removals before checking applicability of query bindings
       (#(if remove-write-bound?
           %
           (apply-removals %)))
       (map #(reduce (fn [match [tuple-key binding]]
-                      (assoc match binding (tuple-key %)))
+                      (merge match (-destructure binding (tuple-key %))))
               (if whole-tuple-binding
                 {whole-tuple-binding %}
                 {})
               slot-bindings))
       set)))
 
+(extend-protocol walk/Walkable
+  cemerick.splice.types.Reference
+  (walkt [coll f]
+    (types/reference (f @coll) (f (types/as-of coll))))
+  cemerick.splice.types.POAttribute
+  (walkt [coll f]
+    (types/po-attr (f (.-attr coll)) (f (.-rank coll)))))
+
 (defn- fix-match-bindings
   [rel match-spec]
-  (mapv (fn [spec]
-          (if-let [[_ bval] (find rel (:binding spec))]
-            (assoc spec :bottom bval :top bval)
-            (reduce
-              (fn [spec slot] (update-in spec [slot]
-                                #(clojure.walk/postwalk
-                                   (fn [x]
-                                     (rel x x))
-                                   %)))
-              spec
-              [:bottom :binding :top])))
+  (mapv (fn [{:keys [binding] :as spec}]
+          (let [grounded-binding (walk/postwalk
+                                   #(rel % %)
+                                   binding)]
+            (if (not= binding grounded-binding)
+              (assoc spec :bottom grounded-binding :top grounded-binding)
+              (reduce
+                (fn [spec slot]
+                  (update-in spec [slot]
+                    #(walk/postwalk
+                       (fn [x]
+                         (rel x x))
+                       %)))
+                spec
+                [:bottom :top]))))
     match-spec))
 
 (defn match
   [space previous-matches {:keys [index clause match-spec whole-tuple-binding]}]
   (->> (if (empty? previous-matches) #{{}} previous-matches)
-    (map #(let [matches (match* space index
+    (map #(let [#_#_#_#__ (echo match-spec)
+                _ (echo (fix-match-bindings (merge %
+                                                  {bottom-symbol s/index-bottom
+                                                   top-symbol s/index-top})
+                              match-spec))
+                matches (match* space index
                           (fix-match-bindings (merge %
                                                 {bottom-symbol s/index-bottom
                                                  top-symbol s/index-top})
