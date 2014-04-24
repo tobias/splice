@@ -30,16 +30,20 @@
                        {::s/e "i1" #po [:children "0"] "data"}])
 
 (defn- po-attrs->string
-  [attrs]
-  (->> (sort-by first attrs)
-    (map second)
+  [tuples]
+  (->> (sort-by :a tuples)
+    (map :v)
     (apply str)))
 
 (deftest dumb
   (is (= "jkl" (po-attrs->string
-                 (q @splice (plan {:select [?a ?v]
-                                   :where [["c3" (<= #po [:children 0] ?a) ?v]
-                                           (string? ?v)]}))))))
+                 (apply concat
+                   (q @splice (plan {:select [?t]
+                                     ; TODO good example of where clamping scan to a single partition
+                                     ; (just strings here) would be helpful (eliminate the predicate)
+                                     ; TODO need to support #po [:children _]
+                                     :where [["c3" (<= #po [:children 0] ?a) ?v _ :as ?t]
+                                             (string? ?v)]})))))))
 
 ; TODO should go elsewhere, not related to pographs
 (deftest bind-aggregate-types
