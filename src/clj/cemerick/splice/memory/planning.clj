@@ -99,9 +99,9 @@
       (scan-range-anchor (.-referent x) bottom)
       (scan-range-anchor (.-epoch x) bottom)))
 
-  cemerick.splice.types.POAttribute
+  cemerick.splice.types.OrderedAttribute
   (scan-range-anchor [x bottom]
-    (types/po-attr
+    (types/oattr
       (scan-range-anchor (.-attr x) bottom)
       (scan-range-anchor (.-rank x) bottom))))
 

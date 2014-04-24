@@ -98,7 +98,7 @@
     (if (types/unbounded? x)
       [@x]
       [@x (types/as-of x)]))
-  cemerick.splice.types.POAttribute
+  cemerick.splice.types.OrderedAttribute
   (-branch? [x] true)
   (-children [x] [(.-attr x) (.-rank x)]))
 
@@ -169,9 +169,9 @@ well as named bindings."
       (merge (-destructure @b @v)
         (-destructure (types/as-of b) (types/as-of v)))))
 
-  cemerick.splice.types.POAttribute
+  cemerick.splice.types.OrderedAttribute
   (-destructure [b v]
-    (when (types/po-attr? v)
+    (when (types/oattr? v)
       (merge (-destructure (.-attr b) (.-attr v))
         (-destructure (.-rank b) (.-rank v))))))
 
@@ -205,9 +205,9 @@ well as named bindings."
       (and (types/reference? v)
         (-matches? @qv @v)
         (-matches? (types/as-of qv) (types/as-of v)))))
-  cemerick.splice.types.POAttribute
+  cemerick.splice.types.OrderedAttribute
  (-matches? [qv v]
-    (and (types/po-attr? v)
+    (and (types/oattr? v)
       (-matches? (.-attr qv) (.-attr v))
       (-matches? (.-rank qv) (.-rank v)))))
 
@@ -286,9 +286,9 @@ well as named bindings."
   cemerick.splice.types.Reference
   (walkt [coll f]
     (types/reference (f @coll) (f (types/as-of coll))))
-  cemerick.splice.types.POAttribute
+  cemerick.splice.types.OrderedAttribute
   (walkt [coll f]
-    (types/po-attr (f (.-attr coll)) (f (.-rank coll)))))
+    (types/oattr (f (.-attr coll)) (f (.-rank coll)))))
 
 (defprotocol IBindable
   (-bind-to [v destination-slot]))

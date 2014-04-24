@@ -119,21 +119,21 @@ contains the same referent, but with the new epoch endpoint."
   (compare* [a b]
     (sedan.impl/default-compare a b)))
 
-;;; ********************* partially-ordered attribute "names"
 
+;;; ********************* (partially) ordered attributes
 
 ; TODO would like to deref to get the attr, but the rank is hardly "just"
 ; metadata like reference epochs (mostly?) are
-(defprotocol IPOAttribute
+(defprotocol IOrderedAttribute
   (attr [x])
   (rank [x]))
 
-(defn- poattr-components
-  [poattr]
-  [(attr poattr) (rank poattr)]) 
+(defn- oattr-components
+  [oattr]
+  [(attr oattr) (rank oattr)]) 
 
-(deftype POAttribute [attr rank]
-  IPOAttribute
+(deftype OrderedAttribute [attr rank]
+  IOrderedAttribute
   (attr [_] attr)
   (rank [_] rank)
   #+clj Comparable #+cljs IComparable
@@ -145,77 +145,77 @@ contains the same referent, but with the new epoch endpoint."
   (toString [this] (pr-str this))
   #+cljs IHash
   (#+clj hashCode #+cljs -hash [this]
-    (inc (hash (poattr-components this))))
+    (inc (hash (oattr-components this))))
   #+cljs IEquiv
   (#+clj equals #+cljs -equiv [this other]
-    (and (instance? POAttribute other)
+    (and (instance? OrderedAttribute other)
       (= attr (.-attr other))
       (= rank (.-rank other)))))
 
-(declare po-attr)
+(declare oattr)
 
-(defn- po-attr-tagged-reader-fn
+(defn- oattr-tagged-reader-fn
   [x]
   (assert (and (vector? x) (== 2 (count x)))
-    "po-attr must be represented by a vector of [attribute, rank]")
-  (apply po-attr x))
+    "oattr must be represented by a vector of [attribute, rank]")
+  (apply oattr x))
 
 ; TODO could print rank strings (if they _are_ strings) in hex to make REPL debugging easier
 
 #+clj
 (do
   (alter-var-root #'cljs.tagged-literals/*cljs-data-readers*
-    assoc 'po po-attr-tagged-reader-fn)
+    assoc 'oa oattr-tagged-reader-fn)
 
-  (defmethod print-method POAttribute [poattr ^java.io.Writer w]
-    (.write w "#po ")
-    (print-method (poattr-components poattr) w))
-  (defmethod print-dup POAttribute [o w]
+  (defmethod print-method OrderedAttribute [oattr ^java.io.Writer w]
+    (.write w "#oa ")
+    (print-method (oattr-components oattr) w))
+  (defmethod print-dup OrderedAttribute [o w]
     (print-method o w))
   (#'clojure.pprint/use-method
     clojure.pprint/simple-dispatch
-    POAttribute 
+    OrderedAttribute 
     #'clojure.pprint/pprint-simple-default)
 
-  (defmethod cljsc/emit-constant POAttribute 
-    [^POAttribute po-attr]
-    (cljsc/emits "cemerick.splice.types.po_attr(")
-    (cljsc/emit-constant (.-attr po-attr))
+  (defmethod cljsc/emit-constant OrderedAttribute 
+    [^OrderedAttribute oattr]
+    (cljsc/emits "cemerick.splice.types.oattr(")
+    (cljsc/emit-constant (.-attr oattr))
     (cljsc/emits ",")
-    (cljsc/emit-constant (.-rank po-attr))
+    (cljsc/emit-constant (.-rank oattr))
     (cljsc/emits ")")))
 
 #+cljs
 (do
-  (cljs.reader/register-tag-parser! 'po po-attr-tagged-reader-fn)
-  (extend-type POAttribute 
+  (cljs.reader/register-tag-parser! 'oa oattr-tagged-reader-fn)
+  (extend-type OrderedAttribute 
     IPrintWithWriter
     (-pr-writer [this w opts]
-      (-write w "#po ")
-      (pr-writer (poattr-components this) w opts))))
+      (-write w "#oa ")
+      (pr-writer (oattr-components this) w opts))))
 
-(defn po-attr?
+(defn oattr?
   "Returns true iff [x] is a partially-ordered attribute."
   [x]
-  (instance? POAttribute x))
+  (instance? OrderedAttribute x))
 
-(defn po-attr
+(defn oattr
   "Creates a new partially-ordered attribute given a base [attribute] (which may
-  be any splice-compatible value _other than_ a po-attr), and a [rank] value
+  be any splice-compatible value _other than_ a oattr), and a [rank] value
   indicating the ordering of that attribute.
 
-When called with a POAttribute, it will be returned unmodified.  When
-called with a POAttribute and a new rank value, will return a POAttribute that
+When called with a OrderedAttribute, it will be returned unmodified.  When
+called with a OrderedAttribute and a new rank value, will return a OrderedAttribute that
 contains the same base attribute, but with the new rank."
   [attr rank]
-  (if (instance? POAttribute attr)
-    (POAttribute. (.-attr attr) rank)
-    (POAttribute. attr rank)))
+  (if (instance? OrderedAttribute attr)
+    (OrderedAttribute. (.-attr attr) rank)
+    (OrderedAttribute. attr rank)))
 
-(define-partition! 0x51 :po-attr POAttribute 
-  (fn decode-po-attr [tag ^String s]
-    (sedan.impl/decode-sequence po-attr (sedan.impl/without-tag s) false))
-  (encode* [^POAttribute x buffer]
+(define-partition! 0x51 :oattr OrderedAttribute 
+  (fn decode-oattr [tag ^String s]
+    (sedan.impl/decode-sequence oattr (sedan.impl/without-tag s) false))
+  (encode* [^OrderedAttribute x buffer]
     (sedan.impl/encode-sequence [(.-attr x) (.-rank x)] buffer false))
   (compare* [a b]
     (sedan.impl/default-compare a b)))
