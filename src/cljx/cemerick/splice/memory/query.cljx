@@ -312,11 +312,16 @@ well as named bindings."
             (if (not= binding grounded-binding)
               (assoc spec :bottom grounded-binding :top grounded-binding)
               (reduce
-                (fn [spec slot]
-                  (update-in spec [slot]
+                (fn [spec endpoint]
+                  (update-in spec [endpoint]
                     #(walk/postwalk
                        (fn [x]
-                         (-bind-to (rel x x) slot))
+                         (-bind-to (rel x (if (variable? x)
+                                            (case endpoint
+                                              :bottom s/index-bottom
+                                              :top s/index-top)
+                                            x))
+                           slot))
                        %)))
                 spec
                 [:bottom :top]))))

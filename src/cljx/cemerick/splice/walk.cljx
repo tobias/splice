@@ -25,6 +25,9 @@ as a sorted-map with the same comparator."))
   (persistent!
    (reduce (fn [r x] (conj! r (f x))) (transient (empty coll)) coll)))
 
+(defn- walkt-default [coll f]
+  (reduce (fn [r x] (conj r (f x))) (empty coll) coll))
+
 (extend-protocol Walkable
   nil
   (walkt [coll f] nil)
@@ -32,8 +35,8 @@ as a sorted-map with the same comparator."))
   #+cljs default
   #+clj java.lang.Object 
   (walkt [x f]
-    #+clj x
-    ; protocols aren't reified, so can't statically extend to cljs.core.IRecord
+    #+clj (if (coll? x) (walkt-default x f) x)
+    ; protocols aren't reified, so can't statically extend to cljs.core.IRecord, etc
     #+cljs (let [type (type x)]
              (cond
                (satisfies? cljs.core/IRecord x)
@@ -56,7 +59,7 @@ as a sorted-map with the same comparator."))
                      Walkable
                      (walkt [coll f] [(f (-key coll)) (f (-val coll))]))
                    (walkt x f))
-               :default x)))
+               :default (if (coll? x) (walkt-default x f) x))))
   #+clj clojure.lang.IMapEntry
   #+clj
   (walkt [coll f]
@@ -86,9 +89,6 @@ as a sorted-map with the same comparator."))
               clojure.lang.PersistentHashSet
               clojure.lang.PersistentVector]]
   (extend type Walkable {:walkt walkt-transient}))
-
-(defn- walkt-default [coll f]
-  (reduce (fn [r x] (conj r (f x))) (empty coll) coll))
 
 ;; Persistent collections that don't support transients
 #+clj

@@ -51,7 +51,6 @@
   (let [s1 (write (in-memory) [{:a 6 :b 12 :c ["j" "k"] ::s/e "x"}])
         s2 (write s1 {:some-meta :p} [{:b 6 ::s/e "y"}])
         space (write s2 {:some-meta true} [{:b "c" ::s/e "y"}])]
-    (def space space)
     (are [result query] (= (set result) (set-check (q space (plan query))))
          [[(identity "x") 6]] {:select [?e ?v]
                              :where [[?e :b 12]

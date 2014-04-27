@@ -6,7 +6,7 @@
             [clojure.core.match :as match]
             [clojure.math.combinatorics :refer (cartesian-product)]
             [clojure.set :as set]
-            [clojure.walk :as walk]))
+            [cemerick.splice.walk :as walk]))
 
 (def ^:private ^:dynamic *&env*)
 
@@ -78,32 +78,14 @@
     (map (comp vector vec))
     set))
 
-(defprotocol IScanRangeValue
-  (scan-range-anchor [x bottom]))
-
-(extend-protocol IScanRangeValue
-  Object
-  (scan-range-anchor [x bottom] x)
-
-  clojure.lang.Symbol
-  (scan-range-anchor [x bottom]
-    (if (q/variable? x) bottom x))
-
-  clojure.lang.IPersistentVector
-  (scan-range-anchor [x bottom]
-    (mapv #(scan-range-anchor % bottom) x))
-
-  cemerick.splice.types.Reference
-  (scan-range-anchor [x bottom]
-    (types/reference
-      (scan-range-anchor (.-referent x) bottom)
-      (scan-range-anchor (.-epoch x) bottom)))
-
-  cemerick.splice.types.OrderedAttribute
-  (scan-range-anchor [x bottom]
-    (types/oattr
-      (scan-range-anchor (.-attr x) bottom)
-      (scan-range-anchor (.-rank x) bottom))))
+(defn scan-range-anchor
+  [bindings x bottom]
+  (walk/postwalk
+   (fn [x]
+     (if (and (q/variable? x) (not (bindings x)))
+       bottom
+       x))
+   x))
 
 ; TODO need to treat match clauses that contain scan range expressions as
 ; predicate clauses w.r.t. clause reordering
@@ -113,8 +95,7 @@
     ([(:or '> '>=) & components] :seq)
     ; TODO this is going to yield confusing error messages, since the
     ; expressions printed will be rewritten
-    (rewrite-scan-range-expr
-      bindings
+    (recur bindings
       (list* ('{> < >= <=} (first expr))
         (reverse components)))
 
@@ -140,13 +121,13 @@
       (and (q/binding? lower)
         (or (not (q/binding? higher))
           (bindings higher)))
-      (list (first expr) q/bottom-symbol lower higher)
+      (recur bindings (list (first expr) q/bottom-symbol lower higher))
 
       ; (< "foo" ?a)
       (and (q/binding? higher)
         (or (not (q/binding? lower))
           (bindings lower)))
-      (list (first expr) lower higher q/top-symbol)
+      (recur bindings (list (first expr) lower higher q/top-symbol))
 
       :else
       (throw (IllegalArgumentException.
@@ -162,16 +143,19 @@
         (every? (fn [sym] (or (not (q/binding? sym))
                             (bindings sym)))
           [bottom top]))
-      (apply list expr)
+      (list (first expr)
+        (scan-range-anchor bindings bottom q/bottom-symbol)
+        free
+        (scan-range-anchor bindings top q/top-symbol))
 
       :else
       (throw (IllegalArgumentException.
                (str "Invalid scan range expression: " expr))))
 
     (x :guard q/clause-variables)
-    (list '<= (scan-range-anchor x q/bottom-symbol)
+    (list '<= (scan-range-anchor bindings x q/bottom-symbol)
       x
-      (scan-range-anchor x q/top-symbol))
+      (scan-range-anchor bindings x q/top-symbol))
 
     :else
     (list '<= expr expr expr)))
@@ -316,6 +300,7 @@
        (and (map-entry? %) (#{:function :predicate} (first %))) %
        (and (map-entry? %) (#{:clause} (first %))) [(first %) (list 'quote (second %))]
        (list? %) (list 'quote %)
+       (or (types/oattr? %) (types/reference? %)) %
        :else (quote-symbols %))
     #(if (symbol? %) (list 'quote %) %)
     query))

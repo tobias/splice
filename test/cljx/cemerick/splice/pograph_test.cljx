@@ -41,8 +41,7 @@
                    (q @splice (plan {:select [?t]
                                      ; TODO good example of where clamping scan to a single partition
                                      ; (just strings here) would be helpful (eliminate the predicate)
-                                     ; TODO need to support #oa [:children _]
-                                     :where [["c3" (<= #oa [:children 0] ?a) ?v _ :as ?t]
+                                     :where [["c3" (<= #oa [:children _] ?a) ?v _ :as ?t]
                                              (string? ?v)]})))))))
 
 ; TODO should go elsewhere, not related to pographs
