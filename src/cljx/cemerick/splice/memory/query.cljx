@@ -312,19 +312,22 @@ well as named bindings."
             (if (not= binding grounded-binding)
               (assoc spec :bottom grounded-binding :top grounded-binding)
               (reduce
-                (fn [spec endpoint]
+                (fn [spec [endpoint index-bottom]]
                   (update-in spec [endpoint]
                     #(walk/postwalk
                        (fn [x]
+                         ; TODO shouldn't this be `any?`
+                         ; Also, if a binding in a query doesn't have a value in
+                         ; the current rel, shouldn't the corresponding match
+                         ; scan simply fail?
                          (-bind-to (rel x (if (variable? x)
-                                            (case endpoint
-                                              :bottom s/index-bottom
-                                              :top s/index-top)
+                                            index-bottom
                                             x))
                            slot))
                        %)))
                 spec
-                [:bottom :top]))))
+                [[:bottom s/index-bottom]
+                 [:top s/index-top]]))))
     match-spec
     [:e :a :v :write :remove-write]))
 
