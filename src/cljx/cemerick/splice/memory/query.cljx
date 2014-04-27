@@ -435,7 +435,8 @@ well as named bindings."
   "Queries this space, returning a seq of results per the query's specification"
   [space {:keys [select planner args subs where] :as q} & arg-values]
   (let [;query (ensure-planned q)
-        args (zipmap (:args q) arg-values)
-        matches (query space q #{args})]
+        matches (query space q (if (seq args)
+                                 #{(zipmap (:args q) arg-values)}
+                                 #{{}}))]
     (map (apply juxt (:select q)) matches)))
 
