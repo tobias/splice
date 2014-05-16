@@ -1,17 +1,53 @@
-# splice
+# Splice
 
-Like the elephant, Splice is many things, depending on where you touch it:
+Like the elephant, Splice is many things, depending on where your context and
+points of contact:
 
 * a masterless, distributed database
 * an Observed-Remove multimap CRDT that presents / implements query facilities
-  via a datalog, supporting storage via ... (more to come, contributions
-  welcome)
+  via a datalog, supporting storage via ...
 * a medium for reifying operations into computable values that may be
-  immediately replicated over arbitrary topologies and mechanisms to satisfy the
+  replicated over arbitrary topologies and mechanisms to satisfy the
   communication requirements of globally distributed computational applications.
 
 This is the _reference implementation_ of Splice, written in portable Clojure /
-ClojureScript.
+ClojureScript for use in any environment that can run a Java or JavaScript VM.
+
+## Mise en garde
+
+_Use may cause personal injury._
+
+First, yes, I'm aware that parts of this may seem very crazy.
+
+While this project is one result of a lot of research and work, it is incredibly
+alpha, not production-ready, and absolutely everything is subject to
+change. Those familiar with CRDT implementation strategies may be confused by
+certain design decisions made so far; again, everything is subject to change,
+but I think it's safe to assume that the intended primary field of use for
+splice is different than other (most?) implementations.
+
+_This README both overstates and has lagged behind the current state of the
+implementation._ This isn't how I like to present projects, but getting things
+out into the sunlight despite shortcomings has become a necessity.
+
+Finally, this is just one part (foundational) of Quilt. Much more to come.
+
+With those caveats, check it out.
+
+### Contributing
+
+If you see something wrong with Splice, _please only file an issue for
+now_. Pull requests will be accepted after due consideration for and against
+having a CLA for Quilt Project subprojects.
+
+## "Installation"
+
+No releases of splice have been made yet. This is intentional. Please feel free
+to clone the repo and play around.
+
+## Usage
+
+
 
 ## Data model
 
@@ -91,7 +127,7 @@ Re: keywords, need to define:
   [e.g. name starting with `_` or `-`?])
   * defaulting to `db`-namespaced keywords right now, though I'm not fond of
     aping Datomic there
-* which imply local-only, non-replication
+* which imply local-only, unreplicated entries
 
 ### Value types
 
@@ -110,7 +146,7 @@ aggregates (e.g. the elements in a vector) individually
 * It is impossible for multiple actors to modify parts of the aggregate
   independently within their local Splice replicas, and have those modifications
   replicate and join with other modifications without conflict.  (i.e. Splice is
-  a CRDT, but you can work around / sabotage the 'C' part of those semantics via
+  a CRDT, but you can work around / sabotage its conflict-resolution semantics via
   ill-considered use of aggregate tuple values.)
 
 Note that all of the above also applies to any scalar that is decomposable and
@@ -125,7 +161,7 @@ represent aggregates within Splice efficiently and without sabotaging the
 
 #### References
 
-TODO
+TODO (implemented but undocumented)
 
 Need distinction between inclusive references and simple links
 
@@ -170,8 +206,7 @@ remove tuples in order to fully remove it:
 [:e3 :name "Jane" :w90 :w82]
 ```
 
-(Replication protocols may batch these into a single "tuple" like
-`[:e3 :name "Jane" :w90 #{:w4 :w16 :w82}]` to minimize transmission costs, but
+(Replication protocols may batch these to minimize transmission overhead, but
 all three tuples must be materialized w.r.t. query at destination replicas.)
  
 The "Jane" tuple could later (or concurrently) be re-added to the `:e3` entity;
@@ -181,7 +216,7 @@ tuple as described earlier.
 It is nonsensical to remove a removal tuple; doing so is effectively a no-op
 (though it is possible that one will be able to query to find a tuple
 attempting to remove a removal tuple).  To revert a removal, one must
-write a new tuple fully representing the desired entry.
+write a new tuple fully representing the desired entry(ies).
 
 #### Removals, history, and immutability
 
@@ -199,11 +234,11 @@ TODO retention policy, see bakery.md
 A _write_ is a collection of tuples that are applied to a replica atomically.
 Each write contains tuples defining an entity representing metadata about the
 write itself, e.g. wall-clock times (when the write was originally made, when it
-was replicated locally, etc), optional causality information such as vector
-clock representations, indications of who/what was responsible for the write, as
-well as arbitrary application-specific metadata.  The eid of the write entity
-must be in the `write` slot of each tuple in the write, including the tuples
-that define the write entity.
+was replicated locally, etc), optional additional causality information,
+indications of who/what was responsible for the write, as well as arbitrary
+application-specific metadata.  The eid of the write entity must be in the
+`write` slot of each tuple in the write, including the tuples that define the
+write entity.
 
 _Replication_ is the (potentially bidirectional) transmission of
 tuples from one store to another, called _replicas_.  The objective is to bring
@@ -225,11 +260,12 @@ part of a write affect/inform a query.
 * Writes must be applied to the destination replica in the same order that
   they were applied to the source replica.  (This implies a partial order among all
   writes in the system, and implicitly satisfies the weak causality required by
-  OR-sets per Shapiro et al. Though, practically speaking, even if a write that
-  contained a remove tuple was applied to a replica prior to the write that
-  contained the tuple to be removed, all contemplated query systems would be
-  unaffected by the violation of causality: until a remove tuple's complement
-  arrives, it is logically inert w.r.t. the set invariants.)
+  OR-sets per Shapiro et al., as well as the causal delivery requirement of
+  "operation-based" CRDTs generally. Though, practically speaking, even if a
+  write that contained a remove tuple was applied to a replica prior to the
+  write that contained the tuple to be removed, all contemplated query systems
+  would be unaffected by the violation of causality: until a remove tuple's
+  complement arrives, it is logically inert w.r.t. the set invariants.)
 
 Write entities must contain the following attributes:
 
@@ -242,11 +278,13 @@ Write entities must contain the following attributes:
   used)?
 * Later (and optional):
   * cryptographic signature of the write (hard in JS environments)
-  * vector clock and other causality information
+  * explicit cross-actor causality information
   * markers / signature from transaction / consensus services indicating
     acceptance of a write within a serializable history
 
 ### What is replicated where, when, and how is it retained?
+
+(This is all prospective.)
 
 A taxonomy of replication and tuple storage concepts:
 
@@ -272,7 +310,6 @@ A taxonomy of replication and tuple storage concepts:
   counterpart(s) into durable storage
 * _Tethering_ is where a replica performs replication solely in response to
   query / immediate activity, primarily utilizing caching storage
-
 
 Formally, there is little to distinguish one replica from another: any replica
 can peer with another given sufficient resources, and any replica can tether to
@@ -340,7 +377,7 @@ applications.
 
 Enforcing a single-value constraint per attribute (or deterministically choosing
 a single value given concurrent additions of different values) would require a
-transaction / consensus mechanism.  TBD
+transaction / consensus mechanism.
 
 #### PN-Counters
 
@@ -371,6 +408,8 @@ reasonably queried to yield all values participating in the counter at
 `[:e1 :cnt]`, which has a value of `3` given the above.
 
 #### Composites / entity references
+
+(This is obsolete given much more recent work on entity references, fences.)
 
 ```
 {:a :x :b {:c :y :db/id 2} :db/id 1}
@@ -407,7 +446,7 @@ another replica).
 
 #### (Partially-ordered) sequences
 
-TODO
+TODO (implemented, not documented)
 
 #### Graphs
 
@@ -478,12 +517,11 @@ replica(s) only when references to them are de-referenced.
 
 * "intuitional" counters
 * registers beyond LWW and MV varieties
+* Anything that isn't amenable to local and remote convergence semantics of CRDTs
 * Anything else requiring PLOP semantics
 * ...?
 
-All of the above could be achieved/supported by providing transactional
-semantics (or, more generally, consensus mechanism) across splice replicas /
-actors.
+All of the above could be achieved/supported via consensus mechanisms across splice replicas / actors TBD.
 
 ### Query (high-level walkthrough)
 
@@ -499,7 +537,7 @@ results should be open on the other, a "top" or "bottom" tuple needs to be
 constructed, e.g. "ZZZZZZZZZZZZZZZZZZZZZZZZ" when used as an end bound if the
 data in question were characterized as a string. (Hopefully the representation
 in question is good enough to provide a dedicated top and bottom value so such
-hacks aren't required.)
+hacks aren't required; sedan fits the bill here.)
 
 Encoding/decoding boundaries denoted by '@':
 
@@ -755,7 +793,7 @@ its sequential specification:
   for _every_ tuple in order to determine if it was removed or not (something
   that perhaps could be optimized away given suitably clever tuple storage
   and/or query impl, but I don't want to require "clever" at this point).  Thus,
-  option 1 is selected.
+  option 1 is selected; generality > efficiency, at least for now.
 * Contemplated attempting to incorporate purging/excision into the tuple
   representation as a particular type of removal with specific operational
   (side-effecting) semantics, but abandoned the notion. The decision to require
@@ -793,10 +831,10 @@ moment, not an inherent data modeling question.
 
 ## Related work
 
-* Shapiro et al.
+* CRDTs, writ large
   *
     ["A comprehensive study of Convergent and Commutative Replicated Data Types"](http://hal.upmc.fr/docs/00/55/55/88/PDF/techreport.pdf)
-* Datomic
+* Datomic, data modeling and programming model /ht's
 * Linda / TupleSpaces
   *
   ["Linda in Context"](http://www.ece.rutgers.edu/~parashar/Classes/ece451-566/slides/carriero.pdf):
@@ -805,10 +843,10 @@ moment, not an inherent data modeling question.
   up with the particulars of the tuple space data model, and the implicit
   selection of coordinated/exclusive writes via blocking `read`, etc)
 * Operational Transforms
+* So, so much more. At some point, developing a full and proper splice
+  bibliography will be mandatory, credit where credit is due, etc.
 
 ## Thanks
-
-
 
 ## License
 
