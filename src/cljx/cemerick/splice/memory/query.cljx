@@ -3,7 +3,7 @@
   #+cljs (:require-macros [cemerick.splice.memory.indexing :refer (index-comparator)])
   (:require [cemerick.splice :as s :refer (->Tuple)]
             [cemerick.splice.types :as types]
-            [cemerick.sedan :as sedan] ; used by index-comparator
+            [quilt.sedan :as sedan] ; used by index-comparator
             [cemerick.splice.walk :as walk]
             [clojure.set :as set]))
 

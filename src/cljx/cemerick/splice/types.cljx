@@ -1,12 +1,12 @@
 (ns cemerick.splice.types
-  (:require [cemerick.sedan :as sedan]
-            [cemerick.sedan.impl :as sedan.impl]
+  (:require [quilt.sedan :as sedan]
+            [quilt.sedan.impl :as sedan.impl]
             #+cljs cljs.reader
             #+clj [cljs.compiler :as cljsc]
             #+clj cljs.tagged-literals
             #+clj clojure.pprint)
   (#+clj :require #+cljs :require-macros
-    [cemerick.sedan.macros :refer (define-partition! !0)]))
+    [quilt.sedan.macros :refer (define-partition! !0)]))
 
 ; TODO probably should move this to splice.reference; I really don't ever want
 ; to implement another type like this...

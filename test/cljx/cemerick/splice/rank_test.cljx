@@ -2,14 +2,14 @@
   (:require [cemerick.splice.rank :refer (rank between) :as rank]
             [cemerick.splice.math :as math]
             [cemerick.cljs.test :as t]
-            cemerick.double-check
-            #+clj [cemerick.double-check.clojure-test :as qc]
-            [cemerick.double-check.properties #+clj :refer #+clj (for-all)]
-            [cemerick.double-check.clojure-test.runtime :as qcrt]
-            [cemerick.double-check.generators :as gen])
+            clojure.test.check
+            #+clj [clojure.test.check.clojure-test :as qc]
+            [clojure.test.check.properties #+clj :refer #+clj (for-all)]
+            [clojure.test.check.clojure-test.runtime :as qcrt]
+            [clojure.test.check.generators :as gen])
   #+clj (:use clojure.test)
-  #+cljs (:require-macros [cemerick.double-check.properties :refer (for-all)]
-                          [cemerick.double-check.clojure-test :as qc]
+  #+cljs (:require-macros [clojure.test.check.properties :refer (for-all)]
+                          [clojure.test.check.clojure-test :as qc]
                           [cemerick.cljs.test :refer (deftest are is)]))
 
 #+clj (set! *warn-on-reflection* true)

@@ -9,7 +9,7 @@
                  [org.clojure/clojurescript "0.0-2197"]
                  [org.clojure/core.match "0.2.0"]
                  [org.clojure/core.incubator "0.1.1"]
-                 [com.cemerick/sedan "0.0.4-SNAPSHOT"]
+                 [org.quilt/sedan "0.0.5"]
                  [org.clojure/math.combinatorics "0.0.4"]
                  [com.cemerick/cljs-sanity "0.0.1"]
                  [org.clojure/core.async "0.1.267.0-0d7780-alpha"]]
@@ -45,12 +45,11 @@
   ; offending bits are the replication tests (is assertions getting caught up in `go` transforms)
   :jvm-opts []
 
-  :profiles {:dev {:dependencies [[com.cemerick/double-check "0.5.7-SNAPSHOT"]]
+  :profiles {:dev {:dependencies [[com.cemerick/double-check "0.5.7"]]
                    :plugins [[lein-cljsbuild "1.0.3"]
                              [com.cemerick/clojurescript.test "0.3.0-SNAPSHOT"]
                              [com.keminglabs/cljx "0.3.3-SNAPSHOT"]
                              [com.cemerick/austin "0.1.5-SNAPSHOT"]
-                             [s3-wagon-private "1.1.2"]
                              ]
                    :aliases {"sanity-check" ["with-profile" "sanity-check"
                                               "do" "clean," "cljsc," "compile"]

@@ -1,5 +1,5 @@
 (ns cemerick.splice.types-test
-  (:require [cemerick.sedan :as sedan]
+  (:require [quilt.sedan :as sedan]
             cemerick.splice
             [cemerick.splice.rank :as r]
             [cemerick.splice.types :refer (reference)]
@@ -7,13 +7,13 @@
             #+cljs [cljs.reader :refer (read-string)]
             #+clj [clojure.test :refer :all :as t]
             #+cljs [cemerick.cljs.test :as t]
-                        cemerick.double-check
-            #+clj [cemerick.double-check.clojure-test :as qc]
-            [cemerick.double-check.properties #+clj :refer #+clj (for-all)]
-            [cemerick.double-check.clojure-test.runtime :as qcrt]
-            [cemerick.double-check.generators :as gen])
-  #+cljs (:require-macros [cemerick.double-check.properties :refer (for-all)]
-                          [cemerick.double-check.clojure-test :as qc]
+            clojure.test.check
+            #+clj [clojure.test.check.clojure-test :as qc]
+            [clojure.test.check.properties #+clj :refer #+clj (for-all)]
+            [clojure.test.check.clojure-test.runtime :as qcrt]
+            [clojure.test.check.generators :as gen])
+  #+cljs (:require-macros [clojure.test.check.properties :refer (for-all)]
+                          [clojure.test.check.clojure-test :as qc]
                           [cemerick.cljs.test :refer (deftest is run-tests)]))
 
 (deftest references

@@ -2,7 +2,7 @@
   (:require [cemerick.splice.types :as types]
             [cemerick.splice.hosty :refer (now current-time-ms)]
             [cemerick.splice.uuid :refer (time-uuid random-uuid)]
-            [cemerick.sedan :as sedan]
+            [quilt.sedan :as sedan]
             [clojure.set :as set]
             [clojure.walk :as walk]
             #+clj [clojure.pprint :as pp])
