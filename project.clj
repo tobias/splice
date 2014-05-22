@@ -1,7 +1,8 @@
 (defproject com.cemerick/splice "0.0.1-SNAPSHOT"
   :description ""
-  :url ""
-  :license "proprietary"
+  :url "http://github.com/QuiltProject/splice"
+  :license {:name "Mozilla Public License v2.0+"
+            :url "https://www.mozilla.org/MPL/"}
   :source-paths ["src/cljx" "src/clj"] ;  "src/cljs"
   :test-paths ["test/cljx" "test/clj" "target/test-classes"] ; "test/cljs" 
   :min-lein-version "2.0.0"

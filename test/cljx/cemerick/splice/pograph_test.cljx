@@ -1,3 +1,7 @@
+; This Source Code Form is subject to the terms of the Mozilla Public License,
+; v. 2.0. If a copy of the MPL was not distributed with this file, You can
+; obtain one at http://mozilla.org/MPL/2.0/.
+
 (ns cemerick.splice.pograph-test
   (:require [cemerick.splice :as s :refer (write)]
             [cemerick.splice.memory.query :as q :refer (q)]
@@ -84,3 +88,37 @@
                                                 :where [["m" _ ?ch]
                                                         [?ch _ ?v]]})))))))
 
+
+
+
+
+(defn- fence-path
+  [splice root-eid base-attr [anchor-eid anchor-rank]]
+  )
+
+(defn- fence-tuples
+  [splice root-eid base-attr [start-eid start-rank :as start] [end-eid end-rank :as end]]
+  )
+
+(defn- fence
+  [splice base-attr [start-eid start-rank :as start] [end-eid end-rank :as end]]
+  (let [siblings (->> (q splice (plan {:select [?a ?v]
+                                                   :args [?start-eid ?start-attr]
+                                                   :where [[?start-eid (>= ?a ?start-attr) ?v]]})
+                                    start-eid (types/oattr base-attr start-rank))
+                   (sort-by first)
+                   (map second))]
+    (mapcat #(concat
+               (when (types/reference? %)
+                 (fence splice base-attr [@% s/index-bottom] [@% s/index-top]))
+               [%])
+      siblings))
+  )
+
+(deftest manual-fence
+  (let [endpoint-query (plan {:select [?e ?a]
+						:args [??v]
+						:where [[?e ?a ?v]
+							(= ??v ?v)]})
+        [start end] (map #(q @splice endpoint-query %) ["c" "k"])]
+    (def fence (mapcat identity [start end]))))
