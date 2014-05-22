@@ -17,8 +17,6 @@ ClojureScript for use in any environment that can run a Java or JavaScript VM.
 
 _Use may cause personal injury._
 
-First, yes, I'm aware that parts of this may seem very crazy.
-
 While this project is one result of a lot of research and work, it is incredibly
 alpha, not production-ready, and absolutely everything is subject to
 change. Those familiar with CRDT implementation strategies may be confused by
@@ -47,7 +45,11 @@ to clone the repo and play around.
 
 ## Usage
 
+There's tons of usage samples in the example-based tests in this repo. (A big
+TODO is to move the actually-useful property-based tests into this repo from
+where they've been grown in some higher-level projects.)
 
+"Blessed" usage examples will appear here soon.
 
 ## Data model
 
@@ -270,7 +272,7 @@ part of a write affect/inform a query.
 Write entities must contain the following attributes:
 
 * wall-clock times
-  * original write `:db/otime`
+  * original write `:clock/wall`
   * local replication (not replicated!)
 * Reference to the identity of the writer
 * Number of tuples in the write (could be used to enforce atomicity of write
@@ -305,7 +307,6 @@ A taxonomy of replication and tuple storage concepts:
   some general expectations:
 
   * Origin replicas should keep their original writes' tuples in durable storage
-  *
 * _Peering_ is where a replica aims to collect all tuples from its
   counterpart(s) into durable storage
 * _Tethering_ is where a replica performs replication solely in response to
@@ -379,11 +380,10 @@ Enforcing a single-value constraint per attribute (or deterministically choosing
 a single value given concurrent additions of different values) would require a
 transaction / consensus mechanism.
 
-#### PN-Counters
+#### Counters
 
-`write` "tags" are not sufficient to represent sources of increments and
-decrements to PN-Counters.  Each tuple's value needs to differ in order to
-preserve each "operation" given OR-set join semantics.  i.e., this doesn't work:
+We can rely on differing `write` tags and the set semantics of written tuples to
+represent changes to a counter:
 
 ```
 [:e1 :cnt 1 :w1]
@@ -392,31 +392,31 @@ preserve each "operation" given OR-set join semantics.  i.e., this doesn't work:
 [:e1 :cnt 1 :w4]
 ```
 
-All of the duplicate values (`1` or `:inc`, or whatever you want to use to
-represent increments and decrements) will be joined away; writes 2 and 4 would
-have no effect on query.  This works, though:
+Obtaining the current value of `:cnt` of `:e1` then just requires aggregation
+(not yet provided for direct use in queries), e.g.:
 
-```
-[:e1 :cnt ["foo" 1] :w1]
-[:e1 :cnt ["bar" 1] :w2]
-[:e1 :cnt ["baz" -1] :w3]
-[:e1 :cnt ["chi" 1] :w4]
+```clojure
+(->> (q @splice (plan {:select [?v ?w]
+		       :where [[:e1 :cnt ?v ?w]]}))
+  (map first)
+  (reduce +))
+
+=> 4
 ```
 
-Each of the strings in the value vectors should be globally-unique.  This can be
-reasonably queried to yield all values participating in the counter at
-`[:e1 :cnt]`, which has a value of `3` given the above.
+(If `?w` isn't included in the `:select`, then `?v` has only two values, `1` and
+`-1`.)
 
 #### Composites / entity references
 
 (This is obsolete given much more recent work on entity references, fences.)
 
 ```
-{:a :x :b {:c :y :db/id 2} :db/id 1}
+{:a :x :b {:c :y :cemerick.splice/e 2} :cemerick.splice/e 1}
 
 
 [:e1 :a :x]
-[:e1 :b #db/ref[:e2]]
+[:e1 :b #ref[:e2]]
 [:e2 :c :y :wx]
 [:wx :ts/local 1234 :wx]
 ```
@@ -425,11 +425,11 @@ or, if we want to refer to a particular version of an entity:
 
 ```
 ;; (At time 1235:)
-{:c :z :db/id 2}
-{:a :x :b {:c :y :db/id 2} :db/id 1}
+{:c :z :cemerick.splice/e 2}
+{:a :x :b {:c :y :cemerick.splice/e 2} :cemerick.splice/e 1}
 
 [:e1 :a :x]
-[:e1 :b #db/ref[:e2 :wy]]
+[:e1 :b #ref[:e2 :wy]]
 [:e2 :c :y :wx]
 [:wx :ts/local 1234 :wx]
 [:e2 :c :z :wy]
@@ -437,12 +437,12 @@ or, if we want to refer to a particular version of an entity:
 
 ```
 
-`#db/ref[2 1234]` being a tagged literal, indicating a reference to entity `:e2`
-at time `1234` (the time component being optional, in case a reference should
-track downstream changes).  The write tag could even be included there, which
-would lock a reference to a particular revision of a tuple (thus excluding any
-that match the entity and time constraints but were concurrently written on
-another replica).
+`#ref[:e2 1234]` being a tagged literal, indicating a reference to entity `:e2`
+at time `1234` (the time component being optional, which defaults to "top"
+[yielding a reference that tracks downstream changes]).  The write tag could
+even be included there, which would lock a reference to a particular revision of
+a tuple (thus excluding any that match the entity and time constraints but were
+concurrently written on another replica).
 
 #### (Partially-ordered) sequences
 
@@ -613,7 +613,7 @@ Given an `eid` (`1`) and a set of keys to traverse (`#{:children}`), give me:
 
 * All queries must be parameterizable by time, default being "now".
 * Any complete entities retrieved must contain their eid under a special key
-  e.g. `:db/id #db/id "...UUID..."`
+  e.g. `:cemerick.splice/e "...UUID..."`
 
 ## "Formal" "Specification"
 
@@ -660,6 +660,26 @@ its sequential specification:
   later)
 
 ## TODO
+
+### Implementation
+
+* (partially) ordered data
+  * Rank strings work, but do not support any notion of either unique
+    disambiguators or statistically unique midpoints (so e.g. concurrent edits
+    at the same "position" by multiple actors will yield interleaved content).
+    Lots of wiggle-room for addressing that, will get back to it when it matters
+    more.
+* Optimization. What's here has so far not been optimized or even
+  profiled. Out-of-the-box sorted sets being used for in-memory indices,
+  standard `defrecord`s for tuples, totally naive "planner", etc etc etc. That
+  will be progressively addressed as the whole thing is dogfooded more
+  significantly.
+* Pull in various bits currently implemented/prototyped elsewhere:
+  * IndexedDB storage
+  * property-based tests of write + query
+  * materialized views -> incremental maintenance -> matching-updates-as-events
+    (channels)
+    * view-based replication
 
 ### Design
 
@@ -729,15 +749,6 @@ its sequential specification:
     queries/apps be able to detect this)?
   * How does this manifest itself mechanically? Policy, management operation, or
     other, or both?
-
-### Implementation(s)
-
-* (partially) ordered data
-  * Rank strings work, but do not support any notion of either unique
-    disambiguators or statistically unique midpoints (so e.g. concurrent edits
-    at the same "position" in some text by multiple actors will yield
-    interleaved content).  Lots of wiggle-room for addressing that, will get
-    back to it when it matters more.
 
 ## Design decision non sequiturs
 
