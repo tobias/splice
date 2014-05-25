@@ -1,4 +1,4 @@
-# Splice
+# Splice [![Travis CI status](https://secure.travis-ci.org/QuiltProject/splice.png?branch=master)](http://travis-ci.org/#!/QuiltProject/splice/builds)
 
 Like the elephant, Splice is many things, depending on where your context and
 points of contact:
