@@ -857,10 +857,9 @@ moment, not an inherent data modeling question.
 * So, so much more. At some point, developing a full and proper splice
   bibliography will be mandatory, credit where credit is due, etc.
 
-## Thanks
-
 ## License
 
 Copyright © 2012-* Chas Emerick.
 
-(Sane OSS license TBD.)
+Distributed under the terms of the
+[Mozilla Public License, v2.0+](https://www.mozilla.org/MPL/2.0/).
