@@ -7,7 +7,7 @@
   :test-paths ["test/cljx" "test/clj" "target/test-classes"] ; "test/cljs" 
   :min-lein-version "2.0.0"
   :dependencies [[org.clojure/clojure "1.6.0"]
-                 [org.clojure/clojurescript "0.0-2197"]
+                 [org.clojure/clojurescript "0.0-2227"]
                  [org.clojure/core.match "0.2.0"]
                  [org.clojure/core.incubator "0.1.1"]
                  [org.quilt/sedan "0.0.5"]
@@ -39,7 +39,6 @@
                         :compiler {:output-to "target/testable.js"
                                    :optimizations :advanced
                                    ; :source-map "target/testable.js.map"
-                                   :libs [""]
                                    :pretty-print true}}]}
 
   ; coping with https://github.com/emezeske/lein-cljsbuild/issues/303
@@ -48,7 +47,7 @@
 
   :profiles {:dev {:dependencies [[com.cemerick/double-check "0.5.7"]]
                    :plugins [[lein-cljsbuild "1.0.3"]
-                             [com.cemerick/clojurescript.test "0.3.0-SNAPSHOT"]
+                             [com.cemerick/clojurescript.test "0.3.1"]
                              [com.keminglabs/cljx "0.3.3-SNAPSHOT"]
                              [com.cemerick/austin "0.1.5-SNAPSHOT"]
                              ]
