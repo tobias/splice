@@ -1,4 +1,4 @@
-(defproject com.cemerick/splice "0.0.1-SNAPSHOT"
+(defproject org.quilt/splice "0.0.1"
   :description ""
   :url "http://github.com/QuiltProject/splice"
   :license {:name "Mozilla Public License v2.0+"
