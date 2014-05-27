@@ -63,5 +63,18 @@
              :rigorous [:default
                         {:jvm-opts ["-Dquickcheck-times=10000000"]
                          :cljsbuild {:test-commands {"node"
-                                                     ^:replace ["node" :runner "this.quickcheck_times='10000000'" "target/testable.js"]}}}]})
+                                                     ^:replace ["node" :runner "this.quickcheck_times='10000000'" "target/testable.js"]}}}]}
+
+  :deploy-repositories {"releases" {:url "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
+                                    :creds :gpg}
+                        "snapshots" {:url "https://oss.sonatype.org/content/repositories/snapshots/"
+                                     :creds :gpg}}
+
+  ;;maven central requirements
+  :scm {:url "https://github.com/QuiltProject/splice.git"}
+  :pom-addition [:developers [:developer
+                              [:name "Chas Emerick"]
+                              [:url "http://cemerick.com"]
+                              [:email "chas@cemerick.com"]
+                              [:timezone "-5"]]])
 
