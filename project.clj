@@ -1,4 +1,4 @@
-(defproject org.quilt/splice "0.0.1"
+(defproject org.quilt/splice "0.0.2-SNAPSHOT"
   :description ""
   :url "http://github.com/QuiltProject/splice"
   :license {:name "Mozilla Public License v2.0+"
@@ -57,7 +57,8 @@
                                            "test," "cljsbuild" "test"]
                               "cljs-quicktest" ["do", "clean," "cljx" "once,"
                                                 "cljsbuild" "test"]
-                              "cleantest" ["with-profile" "rigorous" "quicktest"]}}
+                              "cleantest" ["with-profile" "rigorous" "quicktest"]
+                              "release" ["do" ["clean"] ["cljx" "once"] ["deploy"] ["deploy" "clojars"]]}}
              :sanity-check {:aot :all}
              ; pushes the number of trials run in tests up to some (conservative) absurd level
              :rigorous [:default
