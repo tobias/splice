@@ -133,7 +133,7 @@ Re: keywords, need to define:
 
 ### Value types
 
-Any value type supported by [Sedan](https://bitbucket.com/cemerick/sedan) may be
+Any value type supported by [Sedan](https://github.com/QuiltProject/sedan) may be
 used as a tuple value.
 
 Note that it is considered good splice modeling to use only scalar values.
